@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   AppShell,
   Button,
@@ -26,7 +26,7 @@ export default function VendorPage() {
   const [docRef, setDocRef] = useState(`DOC-DEMO-${Date.now()}`);
   const [gqId, setGqId] = useState("GQ-000001");
   const [sdcNumber, setSdcNumber] = useState("SDC-DEMO-20260713");
-  const [message, setMessage] = useState("Login as Ishyiga vendor to use sandbox forms.");
+  const [message, setMessage] = useState("Open the menu (☰) → Login as Vendor, or tap below.");
   const [lastMove, setLastMove] = useState("");
   const [lastCallback, setLastCallback] = useState("");
 
@@ -36,8 +36,15 @@ export default function VendorPage() {
       body: JSON.stringify({ grant_type: "client_credentials", client_id: "gq_ishyiga_demo", client_secret: "demo-oauth-secret" }),
     });
     sessionStorage.setItem("gq_vendor_jwt", login.token);
+    sessionStorage.setItem("gq_role", "vendor");
     setMessage(`Logged in as ${login.vendorId ?? DEMO_VENDOR_ID}`);
   }
+
+  useEffect(() => {
+    if (sessionStorage.getItem("gq_vendor_jwt")) {
+      setMessage("Vendor session ready — use the sandbox forms.");
+    }
+  }, []);
 
   async function postMove(event: FormEvent) {
     event.preventDefault();

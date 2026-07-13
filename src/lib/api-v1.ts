@@ -9,7 +9,7 @@ import {
   requireSellerForTin,
 } from "./api-auth";
 import { issueJwt, issueOAuthClientCredentials, verifyOAuthClientSecret, hashOtp, verifyOtp } from "./auth";
-import { encryptPhone, decryptPhone } from "./crypto";
+import { encryptPhone, decryptPhone, hashPhone } from "./crypto";
 import { mockSms } from "./delivery";
 import { completeInvoice } from "./invoice-service";
 import {
@@ -24,6 +24,28 @@ import { maskPhone, parseDateParam, readJson, readRawJson, verifyOptionalHmac } 
 import { transitionGlobalQr } from "./state-machine";
 import { fireVendorWebhook } from "./vendor-webhook";
 import { writeAudit } from "./audit";
+import {
+  ensureMemorySeed,
+  getMemoryDb,
+  memAvailInvoice,
+  memCreateRequest,
+  memFindUserByPhone,
+  memFindUserByRole,
+  memFindVendorByClientId,
+  memGetRequest,
+  memHasRecentVerifiedOtp,
+  memInvoiceView,
+  memIssueOtp,
+  memListMrcsForTin,
+  memListRequestsForPhoneHash,
+  memListRequestsForTin,
+  memPublicRequestView,
+  memResolveFromDocId,
+  memResolveFromPayload,
+  memStartProcessing,
+  memVerifyOtp,
+} from "./memory-db";
+import { PILOT_PASSWORD, PILOT_SELLERS } from "./pilot-catalog";
 
 const REQUEST_STATUSES = ["QUEUEING", "GENERATING", "STANDBY", "ADJUST", "DONE", "REFUNDED", "FAILED"];
 
@@ -40,6 +62,10 @@ async function requireOtpOrCitizen(request: Request, phone: string) {
     }
   }
 
+  if (await memHasRecentVerifiedOtp(phone)) {
+    return true;
+  }
+
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
   const latest = await prisma.otpSession.findFirst({
     where: {
@@ -54,8 +80,32 @@ async function requireOtpOrCitizen(request: Request, phone: string) {
 }
 
 async function resolveRequestInput(body: Record<string, unknown>) {
+  await ensureMemorySeed();
+
   if (typeof body.payload === "string") {
     const parsed = parseQrPayload(body.payload);
+    const mem = memResolveFromPayload({
+      version: parsed.version,
+      tin: parsed.tin,
+      mrc: parsed.mrc,
+      docRef: parsed.version === "GQ2" ? parsed.docRef : undefined,
+      docId: parsed.version === "GQ2" ? parsed.docRef : undefined,
+    });
+
+    if (mem.moveId || mem.mrc) {
+      return {
+        tin: mem.tin,
+        mrc: mem.mrc,
+        docRef: mem.docId,
+        docId: mem.docId,
+        amount: mem.amount ?? undefined,
+        items: mem.items ?? undefined,
+        moveId: mem.moveId,
+        vendorId: mem.vendorId,
+        type: mem.type,
+      };
+    }
+
     const move =
       parsed.version === "GQ2"
         ? await prisma.move.findFirst({ where: { docRef: parsed.docRef } })
@@ -68,13 +118,31 @@ async function resolveRequestInput(body: Record<string, unknown>) {
       tin: parsed.tin,
       mrc: parsed.mrc,
       docRef: parsed.version === "GQ2" ? parsed.docRef : move?.docRef,
+      docId: parsed.version === "GQ2" ? parsed.docRef : move?.docRef,
       amount: move?.amount,
       items: move?.items,
       moveId: move?.moveId,
+      vendorId: null as string | null,
+      type: move?.moveType,
     };
   }
 
   if (typeof body.code === "string") {
+    const mem = memResolveFromDocId(body.code);
+    if (mem) {
+      return {
+        tin: mem.tin,
+        mrc: mem.mrc,
+        docRef: mem.docId,
+        docId: mem.docId,
+        amount: mem.amount,
+        items: mem.items,
+        moveId: mem.moveId,
+        vendorId: mem.vendorId,
+        type: mem.type,
+      };
+    }
+
     const move = await prisma.move.findFirst({ where: { docRef: body.code } });
 
     if (!move) {
@@ -85,9 +153,12 @@ async function resolveRequestInput(body: Record<string, unknown>) {
       tin: move.tin,
       mrc: move.mrc ?? undefined,
       docRef: move.docRef,
+      docId: move.docRef,
       amount: move.amount,
       items: move.items,
       moveId: move.moveId,
+      vendorId: null as string | null,
+      type: move.moveType,
     };
   }
 
@@ -101,27 +172,17 @@ async function findRecentDuplicate(input: {
   phone: string;
 }) {
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  const candidates = await prisma.globalQr.findMany({
+  const phoneHash = hashPhone(input.phone);
+  return prisma.globalQr.findFirst({
     where: {
       tin: input.tin,
       mrc: input.mrc ?? null,
       docRef: input.docRef ?? null,
+      buyerPhoneHash: phoneHash,
       createdAt: { gte: fiveMinutesAgo },
     },
     orderBy: { createdAt: "desc" },
   });
-
-  for (const candidate of candidates) {
-    try {
-      if (decryptPhone(candidate.buyerPhoneEnc) === input.phone) {
-        return candidate;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
 }
 
 export async function issueOtpRoute(request: Request) {
@@ -131,18 +192,18 @@ export async function issueOtpRoute(request: Request) {
     return jsonErr("phone is required", 400);
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const { code, expiresIn } = await memIssueOtp(body.phone);
   await prisma.otpSession.create({
     data: {
       id: generateOtpSessionId(),
       phone: body.phone,
       codeHash: await hashOtp(code),
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+      expiresAt: new Date(Date.now() + expiresIn * 1000),
     },
   });
   mockSms(body.phone, `Your Global QR code is ${code}`);
 
-  return jsonOk({ expiresIn: 300, debugCode: code });
+  return jsonOk({ expiresIn, debugCode: code });
 }
 
 export async function verifyOtpRoute(request: Request) {
@@ -152,23 +213,26 @@ export async function verifyOtpRoute(request: Request) {
     return jsonErr("phone and code are required", 400);
   }
 
-  const session = await prisma.otpSession.findFirst({
-    where: {
-      phone: body.phone,
-      verified: false,
-      expiresAt: { gt: new Date() },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const ok = await memVerifyOtp(body.phone, body.code);
+  if (!ok) {
+    const session = await prisma.otpSession.findFirst({
+      where: {
+        phone: body.phone,
+        verified: false,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: "desc" },
+    });
 
-  if (!session || !(await verifyOtp(body.code, session.codeHash))) {
-    return jsonErr("Invalid or expired OTP", 400);
+    if (!session || !(await verifyOtp(body.code, session.codeHash))) {
+      return jsonErr("Invalid or expired OTP", 400);
+    }
+
+    await prisma.otpSession.update({
+      where: { id: session.id },
+      data: { verified: true },
+    });
   }
-
-  await prisma.otpSession.update({
-    where: { id: session.id },
-    data: { verified: true },
-  });
 
   const token = await issueJwt({ sub: body.phone, role: "citizen" });
   return jsonOk({ token, role: "citizen" });
@@ -193,51 +257,110 @@ export async function createRequestRoute(request: Request) {
     return jsonErr(error instanceof Error ? error.message : "Invalid request", 400);
   }
 
-  const duplicate = await findRecentDuplicate({
+  const declaredRaw = body.declaredAmount ?? body.myAmount;
+  const declaredAmount =
+    typeof declaredRaw === "number"
+      ? declaredRaw
+      : typeof declaredRaw === "string"
+        ? Number(declaredRaw)
+        : null;
+
+  const created = await memCreateRequest({
+    phone: body.phone,
     tin: resolved.tin,
     mrc: resolved.mrc,
-    docRef: resolved.docRef,
-    phone: body.phone,
+    docId: resolved.docId ?? resolved.docRef,
+    moveId: resolved.moveId,
+    amount: resolved.amount ?? null,
+    items: resolved.items ?? null,
+    type: resolved.type,
+    vendorId: resolved.vendorId,
+    channel: typeof body.channel === "string" ? body.channel : "QR",
+    geo: typeof body.geo === "string" ? body.geo : null,
+    timezone: typeof body.timezone === "string" ? body.timezone : "Africa/Kigali",
+    tinBuyer:
+      typeof body.buyerTin === "string"
+        ? body.buyerTin
+        : typeof body.tinBuyer === "string"
+          ? body.tinBuyer
+          : null,
+    declaredAmount: Number.isFinite(declaredAmount as number) ? (declaredAmount as number) : null,
+    paymentSms: typeof body.paymentSms === "string" ? body.paymentSms : null,
+    bank: typeof body.bank === "string" ? body.bank : null,
+    bankTxnId: typeof body.bankTxnId === "string" ? body.bankTxnId : null,
+    bankAmount: typeof body.bankAmount === "number" ? body.bankAmount : null,
   });
 
-  if (duplicate) {
-    return jsonOk({ gqId: duplicate.gqId, status: duplicate.status, eta: "24h" });
+  return jsonOk({
+    gqId: created.gqId,
+    status: created.status,
+    decision: created.decision,
+    processingNote: created.processingNote,
+    eta: "24h",
+  });
+}
+
+export async function listMyRequestsRoute(request: Request) {
+  const user = await readBearerUser(request);
+
+  if (!user || user.role !== "citizen" || !user.sub) {
+    return jsonErr("Citizen token required", 401);
   }
 
-  const gqId = await nextGqId();
-  const created = await prisma.globalQr.create({
-    data: {
-      gqId,
-      tin: resolved.tin,
-      mrc: resolved.mrc,
-      docRef: resolved.docRef,
-      moveId: resolved.moveId,
-      amount: resolved.amount,
-      items: resolved.items,
-      channel: typeof body.channel === "string" ? body.channel : "QR",
-      buyerPhoneEnc: encryptPhone(body.phone),
-      geo: typeof body.geo === "string" ? body.geo : undefined,
-      status: "QUEUEING",
-    },
-  });
+  await ensureMemorySeed();
+  const phoneHash = hashPhone(String(user.sub));
+  const memRows = memListRequestsForPhoneHash(phoneHash);
 
-  const mrc = created.mrc ? await prisma.mrc.findUnique({ where: { mrc: created.mrc } }) : null;
-  const status = mrc?.vendorId ? "GENERATING" : "STANDBY";
-  const transitioned = await transitionGlobalQr(created.gqId, status, {
-    actor: body.phone,
-    role: "citizen",
-    decision: status === "GENERATING" ? "ROUTED_TO_VENDOR" : "NO_VENDOR",
-    decisionBy: "system",
-  });
-
-  if (status === "GENERATING") {
-    fireVendorWebhook(created.gqId).catch((error) => console.error("[WEBHOOK FIRE FAILED]", error));
+  if (memRows.length) {
+    return jsonOk(memRows.map(memPublicRequestView));
   }
 
-  return jsonOk({ gqId: transitioned.gqId, status: transitioned.status, eta: "24h" });
+  const rows = await prisma.globalQr.findMany({
+    where: { buyerPhoneHash: phoneHash },
+    orderBy: { scanTs: "desc" },
+    take: 100,
+  });
+
+  return jsonOk(
+    rows.map((row) => ({
+      gqId: row.gqId,
+      status: row.status,
+      tin: row.tin,
+      mrc: row.mrc,
+      docRef: row.docRef,
+      amount: row.amount,
+      channel: row.channel,
+      scanTs: row.scanTs,
+      deliveredVia: row.deliveredVia,
+      deliveredTs: row.deliveredTs,
+      invoicePdfUrl: row.invoicePdfUrl,
+    })),
+  );
 }
 
 export async function getRequestRoute(request: Request, gqId: string) {
+  await ensureMemorySeed();
+  const mem = memGetRequest(gqId);
+  if (mem) {
+    const user = await readBearerUser(request);
+    if (!user) {
+      try {
+        const phone = decryptPhone(mem.phoneEnc);
+        if (!(await requireOtpOrCitizen(request, phone))) {
+          return jsonErr("Unauthorized", 401);
+        }
+      } catch {
+        return jsonErr("Unauthorized", 401);
+      }
+    }
+
+    const timeline = getMemoryDb()
+      .audits.filter((a) => a.entity === "GlobalQr" && a.entityId === gqId)
+      .map((a) => ({ action: a.action, role: a.role, ts: a.ts, after: a.after }));
+
+    return jsonOk({ ...memPublicRequestView(mem), timeline });
+  }
+
   const user = await readBearerUser(request);
   const record = await prisma.globalQr.findUnique({ where: { gqId } });
 
@@ -354,6 +477,21 @@ export async function adjustRequestRoute(request: Request, gqId: string) {
 }
 
 export async function resolveCodeRoute(code: string) {
+  await ensureMemorySeed();
+  const mem = memResolveFromDocId(code);
+  if (mem) {
+    return jsonOk({
+      sellerName: mem.sellerName,
+      tin: mem.tin,
+      amount: mem.amount,
+      vat: mem.vat,
+      docRef: mem.docId,
+      docId: mem.docId,
+      mrc: mem.mrc,
+      type: mem.type,
+    });
+  }
+
   const move = await prisma.move.findFirst({ where: { docRef: code } });
 
   if (!move) {
@@ -458,8 +596,13 @@ export async function getInvoiceRoute(request: Request, gqId: string) {
     return jsonErr("Unauthorized", 401);
   }
 
-  const record = await prisma.globalQr.findUnique({ where: { gqId } });
+  await ensureMemorySeed();
+  const mem = memGetRequest(gqId);
+  if (mem) {
+    return jsonOk(memInvoiceView(mem));
+  }
 
+  const record = await prisma.globalQr.findUnique({ where: { gqId } });
   if (!record) {
     return jsonErr("Invoice not found", 404);
   }
@@ -569,8 +712,14 @@ export async function sellerRequestsRoute(request: Request, tin: string) {
     return auth.response;
   }
 
+  await ensureMemorySeed();
+  const memRows = memListRequestsForTin(tin);
+  if (memRows.length || PILOT_SELLERS.some((s) => s.tin === tin) || tin === "100000001") {
+    return jsonOk(memRows.map(memPublicRequestView));
+  }
+
   const records = await prisma.globalQr.findMany({
-    where: { tin, status: { in: ["QUEUEING", "STANDBY"] } },
+    where: { tin, status: { in: ["QUEUEING", "STANDBY", "GENERATING"] } },
     orderBy: { createdAt: "desc" },
   });
 
@@ -590,7 +739,65 @@ export async function sellerMrcRoute(request: Request, tin: string) {
     return auth.response;
   }
 
+  await ensureMemorySeed();
+  const memMrcs = memListMrcsForTin(tin);
+  if (memMrcs.length) {
+    return jsonOk(memMrcs);
+  }
+
   return jsonOk(await prisma.mrc.findMany({ where: { tin }, orderBy: { issuedAt: "desc" } }));
+}
+
+export async function processRequestRoute(request: Request, gqId: string) {
+  const auth = await requireAnyRole(request, ["seller", "admin", "GQ_ADMIN", "vendor"]);
+  if (auth.response) return auth.response;
+
+  await ensureMemorySeed();
+  const existing = memGetRequest(gqId);
+  if (!existing) return jsonErr("Request not found", 404);
+  if (auth.user.role === "seller" && auth.user.tin && auth.user.tin !== existing.tinSeller) {
+    return jsonErr("Forbidden", 403);
+  }
+
+  try {
+    const row = memStartProcessing(gqId, String(auth.user.sub));
+    return jsonOk({
+      ...memPublicRequestView(row),
+      message: "Under processing on Ishyiga / vendor VSDC",
+    });
+  } catch (error) {
+    return jsonErr(error instanceof Error ? error.message : "Process failed", 400);
+  }
+}
+
+export async function availInvoiceRoute(request: Request, gqId: string) {
+  const body = await readJson(request);
+  const auth = await requireAnyRole(request, ["seller", "admin", "GQ_ADMIN", "vendor"]);
+  if (auth.response) return auth.response;
+
+  await ensureMemorySeed();
+  const existing = memGetRequest(gqId);
+  if (!existing) return jsonErr("Request not found", 404);
+  if (auth.user.role === "seller" && auth.user.tin && auth.user.tin !== existing.tinSeller) {
+    return jsonErr("Forbidden", 403);
+  }
+
+  const sdcNumber =
+    typeof body?.sdcNumber === "string" && body.sdcNumber
+      ? body.sdcNumber
+      : `SDC-ISH-${Date.now().toString(36).toUpperCase()}`;
+
+  try {
+    const row = memAvailInvoice(gqId, {
+      sdcNumber,
+      actor: String(auth.user.sub),
+      role: String(auth.user.role),
+      invoiceOriginal: body?.invoiceOriginal,
+    });
+    return jsonOk(memInvoiceView(row));
+  } catch (error) {
+    return jsonErr(error instanceof Error ? error.message : "Avail failed", 400);
+  }
 }
 
 export async function qrRoute(request: Request) {
@@ -779,9 +986,20 @@ export async function authTokenRoute(request: Request) {
     return jsonErr("Invalid body", 400);
   }
 
+  await ensureMemorySeed();
+
   if (body.grant_type === "client_credentials") {
     if (typeof body.client_id !== "string" || typeof body.client_secret !== "string") {
       return jsonErr("client_id and client_secret are required", 400);
+    }
+
+    const memVendor = memFindVendorByClientId(body.client_id);
+    if (memVendor?.oauthClientSecretHash && (await verifyOAuthClientSecret(body.client_secret, memVendor.oauthClientSecretHash))) {
+      return jsonOk({
+        token: await issueVendorJwt(memVendor.vendorId),
+        role: "vendor",
+        vendorId: memVendor.vendorId,
+      });
     }
 
     const vendor = await prisma.vendor.findFirst({ where: { oauthClientId: body.client_id } });
@@ -794,10 +1012,35 @@ export async function authTokenRoute(request: Request) {
   }
 
   if (body.grant_type === "password") {
+    if (typeof body.password !== "string") {
+      return jsonErr("Invalid credentials", 401);
+    }
+
+    const memUser =
+      typeof body.phone === "string"
+        ? memFindUserByPhone(body.phone)
+        : Array.from(getMemoryDb().users.values()).find((u) => u.email === body.email) ?? null;
+
+    if (memUser?.passwordHash && (await bcrypt.compare(body.password, memUser.passwordHash))) {
+      const token = await issueJwt({
+        sub: memUser.id,
+        role: memUser.role,
+        tin: memUser.tin ?? undefined,
+        vendorId: memUser.vendorId ?? undefined,
+      });
+      return jsonOk({
+        token,
+        role: memUser.role,
+        tin: memUser.tin,
+        vendorId: memUser.vendorId,
+        name: memUser.name,
+      });
+    }
+
     const login = typeof body.phone === "string" ? { phone: body.phone } : { email: String(body.email ?? "") };
     const user = await prisma.user.findFirst({ where: login });
 
-    if (!user?.passwordHash || typeof body.password !== "string" || !(await bcrypt.compare(body.password, user.passwordHash))) {
+    if (!user?.passwordHash || !(await bcrypt.compare(body.password, user.passwordHash))) {
       return jsonErr("Invalid credentials", 401);
     }
 
@@ -812,15 +1055,21 @@ export async function authTokenRoute(request: Request) {
   }
 
   if (typeof body.role === "string") {
-    const user = await prisma.user.findFirst({ where: { role: body.role } });
+    const memUser = memFindUserByRole(body.role);
+    const user = memUser ?? (await prisma.user.findFirst({ where: { role: body.role } }));
     const token = await issueJwt({
       sub: user?.id ?? `demo-${body.role}`,
       role: body.role,
-      tin: user?.tin ?? undefined,
-      vendorId: user?.vendorId ?? undefined,
+      tin: user && "tin" in user ? user.tin ?? undefined : undefined,
+      vendorId: user && "vendorId" in user ? user.vendorId ?? undefined : undefined,
     });
 
-    return jsonOk({ token, role: body.role, tin: user?.tin, vendorId: user?.vendorId });
+    return jsonOk({
+      token,
+      role: body.role,
+      tin: user && "tin" in user ? user.tin : undefined,
+      vendorId: user && "vendorId" in user ? user.vendorId : undefined,
+    });
   }
 
   return jsonErr("Unsupported grant", 400);
@@ -1035,6 +1284,86 @@ export async function simulateScanRoute(request: Request) {
   });
 
   return createRequestRoute(fakeRequest);
+}
+
+export async function listTestQrsRoute() {
+  if (process.env.NODE_ENV === "production") {
+    return jsonErr("Not available in production", 404);
+  }
+
+  const db = await ensureMemorySeed();
+  const now = new Date().toISOString();
+
+  const cards = db.catalog.map((s) => {
+    const payload =
+      s.qrKind === "GQ1"
+        ? buildStaticPayload({ tin: s.tin, mrc: s.mrc, issuedTs: now })
+        : buildDynamicPayload({
+            tin: s.tin,
+            mrc: s.mrc,
+            txTs: now,
+            docRef: s.docId,
+          });
+
+    return {
+      ...s,
+      payload,
+      docLabel: s.docType.replace("_", " "),
+      deviceLabel: s.device,
+    };
+  });
+
+  const byBusiness = PILOT_SELLERS.map((seller) => {
+    const rows = cards.filter((c) => c.tin === seller.tin);
+    return {
+      tin: seller.tin,
+      name: seller.name,
+      phone: seller.phone,
+      password: PILOT_PASSWORD,
+      vendorId: seller.vendorId,
+      stack: rows[0]?.stack ?? "",
+      tableCount: rows.filter((r) => r.device === "TABLE").length,
+      desktopCount: rows.filter((r) => r.device === "DESKTOP" || r.device === "WINDOWS").length,
+      mrcSample: rows[0]?.mrc,
+      qrs: rows.length,
+    };
+  });
+
+  return jsonOk({
+    generatedAt: now,
+    storage: "in-memory (resets on server restart)",
+    mrcFormat: "VVVCCCXXXXXX — vendor3 + seller3 + device#",
+    buyerInputs: {
+      required: ["phone", "buyerTin if B2B"],
+      optionalFastTreatment: ["myAmount / declaredAmount", "paymentSms (MoMo/Bank)"],
+      autoOnScan: ["geo", "scanTs", "timezone"],
+    },
+    companies: byBusiness,
+    scenarios: cards,
+    counts: {
+      total: cards.length,
+      byDevice: {
+        TABLE: cards.filter((c) => c.device === "TABLE").length,
+        DESKTOP: cards.filter((c) => c.device === "DESKTOP").length,
+        WINDOWS: cards.filter((c) => c.device === "WINDOWS").length,
+      },
+      byBusiness: Object.fromEntries(byBusiness.map((b) => [b.name, b.qrs])),
+    },
+  });
+}
+
+export async function listPilotSellersRoute() {
+  await ensureMemorySeed();
+  return jsonOk({
+    password: PILOT_PASSWORD,
+    sellers: PILOT_SELLERS.map((s) => ({
+      tin: s.tin,
+      name: s.name,
+      phone: s.phone,
+      vendorId: s.vendorId,
+      sector: s.sector,
+    })),
+  });
 }
 
 export async function listRouteFiles() {

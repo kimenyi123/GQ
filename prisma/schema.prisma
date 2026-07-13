@@ -68,6 +68,7 @@ model GlobalQr {
   items         String?
   channel       String
   buyerPhoneEnc String
+  buyerPhoneHash String?
   buyerEmail    String?
   geo           String?
   scanTs        DateTime  @default(now())
@@ -86,6 +87,7 @@ model GlobalQr {
   @@index([status])
   @@index([tin])
   @@index([mrc])
+  @@index([buyerPhoneHash])
 }
 
 model Payment {

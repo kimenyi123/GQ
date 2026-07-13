@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import {
   AppShell,
   Button,
@@ -24,14 +24,15 @@ export default function AdminPage() {
   const [vendorId, setVendorId] = useState("VND-ISHYIGA");
   const [gqId, setGqId] = useState(DEMO_GQ);
   const [vendorName, setVendorName] = useState("New demo vendor");
-  const [message, setMessage] = useState("Login as GQ admin to enable registry and ops actions.");
+  const [message, setMessage] = useState("Open the menu (☰) → Login as Admin, or tap below.");
 
   async function loginAdmin() {
     const login = await apiJson<{ token: string }>("/api/v1/auth/token", {
       method: "POST",
-      body: JSON.stringify({ role: "GQ_ADMIN" }),
+      body: JSON.stringify({ role: "admin" }),
     });
     sessionStorage.setItem("gq_admin_jwt", login.token);
+    sessionStorage.setItem("gq_role", "admin");
     await loadStatus();
   }
 
@@ -40,6 +41,12 @@ export default function AdminPage() {
     setStatus(data);
     setMessage("Ops board refreshed.");
   }
+
+  useEffect(() => {
+    if (sessionStorage.getItem("gq_admin_jwt")) {
+      loadStatus().catch(() => undefined);
+    }
+  }, []);
 
   async function createMrc(event: FormEvent) {
     event.preventDefault();

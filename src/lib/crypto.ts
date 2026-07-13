@@ -38,6 +38,13 @@ export function encryptPhone(phone: string) {
   ].join(":");
 }
 
+/** Deterministic lookup key — not reversible to the phone number. */
+export function hashPhone(phone: string) {
+  return createHash("sha256")
+    .update(`${process.env.GQ_OTP_PEPPER ?? ""}:${phone.trim()}`)
+    .digest("hex");
+}
+
 export function decryptPhone(payload: string) {
   const [version, ivRaw, tagRaw, ciphertextRaw] = payload.split(":");
 

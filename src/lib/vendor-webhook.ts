@@ -62,7 +62,7 @@ export async function fireVendorWebhook(gqId: string) {
   }
 
   try {
-    const response = await fetch(vendor.webhookUrl, {
+    const response = await fetch(vendor.webhookUrl!, {
       method: "POST",
       headers: {
         "content-type": "application/json",

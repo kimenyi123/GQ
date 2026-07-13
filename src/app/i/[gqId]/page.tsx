@@ -10,8 +10,15 @@ type Invoice = {
   sdcNumber?: string;
   rraResponse?: string;
   invoicePdfUrl?: string;
+  invoiceOriginal?: Record<string, unknown> | null;
   deliveredVia?: string;
   deliveredTs?: string;
+  processingNote?: string | null;
+  amount?: number | null;
+  tinSeller?: string;
+  tinBuyer?: string | null;
+  docId?: string | null;
+  mrc?: string | null;
 };
 
 export default function InvoicePage() {
@@ -19,22 +26,37 @@ export default function InvoicePage() {
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [message, setMessage] = useState("Loading invoice...");
 
+  async function pull() {
+    setMessage("Pulling…");
+    try {
+      const data = await apiJson<Invoice>(`/api/v1/invoices/${params.gqId}`, {
+        headers: authHeaders("gq_citizen_jwt"),
+      });
+      setInvoice(data);
+      setMessage(data.status === "DONE" ? "" : data.processingNote || "Not available yet — seller still processing.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Pull failed");
+    }
+  }
+
   useEffect(() => {
-    apiJson<Invoice>(`/api/v1/invoices/${params.gqId}`, {
-      headers: authHeaders("gq_citizen_jwt"),
-    })
-      .then((data) => {
-        setInvoice(data);
-        setMessage("");
-      })
-      .catch((error: Error) => setMessage(error.message));
+    pull().catch(() => undefined);
   }, [params.gqId]);
 
   return (
     <AppShell>
-      <section className="mt-8">
-        <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald">EBM invoice</p>
-        <h1 className="mt-2 text-4xl font-black text-navy">{params.gqId}</h1>
+      <section className="mt-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald">EBM invoice</p>
+          <h1 className="mt-2 text-4xl font-black text-navy">{params.gqId}</h1>
+        </div>
+        <button
+          type="button"
+          onClick={pull}
+          className="rounded-full bg-navy px-5 py-3 text-sm font-bold text-white"
+        >
+          Pull latest
+        </button>
       </section>
 
       {invoice ? (
@@ -42,7 +64,9 @@ export default function InvoicePage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-sm text-muted">Rwanda Revenue Authority</p>
-              <h2 className="mt-1 text-2xl font-black text-navy">Invoice view</h2>
+              <h2 className="mt-1 text-2xl font-black text-navy">
+                {invoice.status === "DONE" ? "Invoice available" : "Waiting for seller / VSDC"}
+              </h2>
             </div>
             <StatusChip status={invoice.status} />
           </div>
@@ -52,20 +76,32 @@ export default function InvoicePage() {
               <dd className="mt-1 font-mono">{invoice.sdcNumber ?? "Pending"}</dd>
             </div>
             <div>
-              <dt className="text-xs font-bold uppercase tracking-wide text-muted">Delivered via</dt>
-              <dd className="mt-1">{invoice.deliveredVia ?? "Not delivered yet"}</dd>
+              <dt className="text-xs font-bold uppercase tracking-wide text-muted">Seller TIN</dt>
+              <dd className="mt-1 font-mono">{invoice.tinSeller ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold uppercase tracking-wide text-muted">Doc ID</dt>
+              <dd className="mt-1 font-mono">{invoice.docId ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-bold uppercase tracking-wide text-muted">Amount</dt>
+              <dd className="mt-1 font-mono">RWF {invoice.amount ?? 0}</dd>
             </div>
           </dl>
-          {invoice.invoicePdfUrl ? (
-            <a className="mt-6 inline-flex rounded-full bg-emerald px-5 py-3 text-sm font-bold text-white" href={invoice.invoicePdfUrl}>
-              Download invoice
-            </a>
+          {invoice.status === "DONE" ? (
+            <p className="mt-6 rounded-2xl bg-emerald/10 p-4 text-sm font-semibold text-emerald">
+              Avail via {invoice.deliveredVia ?? "PULL"} — you can save / screenshot this EBM.
+            </p>
           ) : (
             <p className="mt-6 rounded-2xl bg-gold/10 p-4 text-sm font-semibold text-gold">
-              Invoice pending. Return to the tracker for live status.
+              {message || "Under processing. Pull again after the seller avails the EBM."}
             </p>
           )}
-          {invoice.rraResponse ? <pre className="mt-5 overflow-auto rounded-2xl bg-paper p-4 text-xs">{invoice.rraResponse}</pre> : null}
+          {invoice.invoiceOriginal ? (
+            <pre className="mt-5 overflow-auto rounded-2xl bg-paper p-4 text-xs">
+              {JSON.stringify(invoice.invoiceOriginal, null, 2)}
+            </pre>
+          ) : null}
         </Card>
       ) : (
         <p className="mt-6 rounded-2xl border border-line bg-paper p-4 text-sm text-muted">{message}</p>

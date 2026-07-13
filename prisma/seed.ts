@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { encryptPhone } from "../src/lib/crypto";
+import { encryptPhone, hashPhone } from "../src/lib/crypto";
 
 process.env.GQ_PHONE_KEY ??=
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -195,6 +195,8 @@ async function main() {
     const move = moves[index];
     const done = status === "DONE";
     const refunded = status === "REFUNDED";
+    // First 20 requests belong to the demo citizen phone so /my has real data
+    const phone = index < 20 ? "+250788000001" : `+2507881${String(index).padStart(5, "0")}`;
 
     return {
       gqId: `GQ-${String(index + 1).padStart(6, "0")}`,
@@ -205,7 +207,8 @@ async function main() {
       amount: move.amount,
       items: move.items,
       channel: channels[index % channels.length],
-      buyerPhoneEnc: encryptPhone(`+2507881${String(index).padStart(5, "0")}`),
+      buyerPhoneEnc: encryptPhone(phone),
+      buyerPhoneHash: hashPhone(phone),
       buyerEmail: index % 4 === 0 ? `buyer${index}@example.com` : null,
       geo: index % 5 === 0 ? "-1.9441,30.0619" : null,
       scanTs: daysAgo(index % 14, index % 8),

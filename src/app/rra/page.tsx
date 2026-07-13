@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell, Button, Card, DEMO_GQ, Field, Metric, StatusChip, apiJson, authHeaders, inputClass } from "@/components/design";
 
 type Conversion = {
@@ -18,14 +18,15 @@ export default function RraPage() {
   const [reports, setReports] = useState<Evasion[]>([]);
   const [recordId, setRecordId] = useState(DEMO_GQ);
   const [record, setRecord] = useState<RecordView | null>(null);
-  const [message, setMessage] = useState("Login as demo RRA analyst to load dashboards.");
+  const [message, setMessage] = useState("Open the menu (☰) → Login as RRA, or tap below.");
 
-  async function login(role: "rra" | "RRA_AGENT") {
+  async function login(role: "rra" | "RRA_AGENT" = "rra") {
     const login = await apiJson<{ token: string }>("/api/v1/auth/token", {
       method: "POST",
       body: JSON.stringify({ role }),
     });
     sessionStorage.setItem("gq_rra_jwt", login.token);
+    sessionStorage.setItem("gq_role", "rra");
     await loadDashboard();
   }
 
@@ -45,6 +46,12 @@ export default function RraPage() {
       setMessage(error instanceof Error ? error.message : "Could not load RRA dashboard");
     }
   }
+
+  useEffect(() => {
+    if (sessionStorage.getItem("gq_rra_jwt")) {
+      loadDashboard().catch(() => undefined);
+    }
+  }, []);
 
   async function inspect(decrypt = false) {
     const data = await apiJson<RecordView>(`/api/v1/rra/records/${recordId}${decrypt ? "?decrypt=1" : ""}`, {
