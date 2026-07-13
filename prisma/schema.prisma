@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Seller {
+  tin       String   @id
+  name      String
+  sector    String
+  contacts  String?
+  vendorId  String?
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+}
+
+model Vendor {
+  vendorId               String    @id
+  name                   String
+  vsdcRef                String?
+  webhookUrl             String?
+  oauthClientId          String?
+  oauthClientSecretHash  String?
+  status                 String    @default("PENDING")
+  lastHeartbeat          DateTime?
+  createdAt              DateTime  @default(now())
+}
+
+model Mrc {
+  mrc           String   @id
+  tin           String
+  vendorId      String?
+  locationLabel String?
+  deviceType    String
+  qrVersion     String
+  status        String   @default("ACTIVE")
+  issuedAt      DateTime
+  issuedBy      String?
+}
+
+model Move {
+  moveId   String   @id
+  vendorId String
+  tin      String
+  mrc      String?
+  moveType String
+  docRef   String
+  items    String
+  amount   Float
+  currency String   @default("RWF")
+  ts       DateTime
+  raw      String?
+
+  @@index([mrc])
+  @@index([docRef])
+}
+
+model GlobalQr {
+  gqId          String    @id
+  tin           String
+  mrc           String?
+  docRef        String?
+  moveId        String?
+  amount        Float?
+  items         String?
+  channel       String
+  buyerPhoneEnc String
+  buyerEmail    String?
+  geo           String?
+  scanTs        DateTime  @default(now())
+  status        String
+  decision      String?
+  decisionBy    String?
+  decisionTs    DateTime?
+  sdcNumber     String?
+  rraResponse   String?
+  invoicePdfUrl String?
+  deliveredVia  String?
+  deliveredTs   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+  @@index([tin])
+  @@index([mrc])
+}
+
+model Payment {
+  txnId       String   @id
+  provider    String
+  payerRef    String?
+  payeeTin    String
+  amount      Float
+  ts          DateTime
+  gqId        String?
+  matchStatus String   @default("UNMATCHED")
+
+  @@index([gqId])
+}
+
+model EvasionReport {
+  reportId    String   @id
+  gqId        String?
+  sellerTin   String
+  phoneEnc    String
+  note        String?
+  evidenceUrl String?
+  status      String   @default("NEW")
+  createdAt   DateTime @default(now())
+}
+
+model User {
+  id           String   @id
+  phone        String?
+  email        String?
+  passwordHash String?
+  role         String
+  tin          String?
+  vendorId     String?
+  name         String?
+  createdAt    DateTime @default(now())
+}
+
+model OtpSession {
+  id        String   @id
+  phone     String
+  codeHash  String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id       String   @id
+  actor    String
+  role     String
+  action   String
+  entity   String
+  entityId String
+  before   String?
+  after    String?
+  ts       DateTime @default(now())
+}
+
+model BatchRun {
+  id       String   @id
+  date     DateTime
+  pushed   Int
+  refunded Int
+  failed   Int
+  report   String?
+  ts       DateTime @default(now())
+}
