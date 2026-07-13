@@ -22,9 +22,16 @@ Remote: [https://github.com/kimenyi123/GQ.git](https://github.com/kimenyi123/GQ.
 
 ```bash
 pnpm install
+# if pnpm complains about ignored build scripts, .npmrc already allows them
 pnpm db:push
 pnpm db:seed
 pnpm dev
+```
+
+If `pnpm dev` fails on a deps check, start with:
+
+```bash
+node ./node_modules/next/dist/bin/next dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
