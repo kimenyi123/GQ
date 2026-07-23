@@ -547,6 +547,13 @@ export function BurgerMenu() {
                   {t("openDemoQr")}
                 </Link>
                 <Link
+                  href="/demo-qr/sticker"
+                  onClick={() => setOpen(false)}
+                  className="block rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-navy"
+                >
+                  Smart sticker builder
+                </Link>
+                <Link
                   href="/status"
                   onClick={() => setOpen(false)}
                   className="block rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-navy"

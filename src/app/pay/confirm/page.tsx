@@ -100,7 +100,9 @@ export default function PayConfirmPage() {
   return (
     <CitizenShell>
       <div className="space-y-4">
-        <h1 className="text-center text-lg font-black text-navy">Kwishyura na MoMo</h1>
+        <h1 className="text-center text-lg font-black text-navy">
+          {checkout?.paymentProvider ? `Kwishyura · ${checkout.paymentProvider}` : "Kwishyura na MoMo"}
+        </h1>
 
         {checkout ? (
           <div className="rounded-2xl border border-line bg-white p-4 text-sm">
@@ -108,6 +110,11 @@ export default function PayConfirmPage() {
             <p className="mt-1 text-muted">
               {checkout.itemName} · <span className="font-mono font-bold">{checkout.totalRwf.toLocaleString()} RWF</span>
             </p>
+            {checkout.paymentProvider ? (
+              <p className="mt-2 text-xs font-bold text-emerald">
+                {checkout.paymentProvider} · {checkout.paymentCode}
+              </p>
+            ) : null}
             <p className="mt-2 break-all font-mono text-xs text-muted">{checkout.ussd}</p>
           </div>
         ) : null}

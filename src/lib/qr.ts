@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolvePublicAppUrl } from "./app-url";
 
 const staticPayloadSchema = z.object({
   version: z.literal("GQ1"),
@@ -76,8 +77,8 @@ export function buildMomoPayload(input: Omit<MomoQrPayload, "version">) {
 }
 
 /** QR sticker encodes this URL so phone opens Ishyura with fields pre-filled. */
-export function buildGq3ScanUrl(gq3Payload: string) {
-  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+export function buildGq3ScanUrl(gq3Payload: string, appBaseUrl?: string) {
+  const base = resolvePublicAppUrl(appBaseUrl);
   const url = new URL(`${base}/`);
   url.searchParams.set("payload", gq3Payload);
   return url.toString();

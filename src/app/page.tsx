@@ -15,7 +15,14 @@ import {
   useI18n,
 } from "@/components/design";
 import { QrCameraScanner, decodeQrFromFile } from "@/components/QrCameraScanner";
-import { buildMomoUssd, saveMomoCheckout } from "@/lib/momo-payment";
+import { PaymentGatewaySheet } from "@/components/PaymentGatewaySheet";
+import { saveMomoCheckout } from "@/lib/momo-payment";
+import {
+  buildPaymentRails,
+  buildRailUssd,
+  readPayablesFromLocation,
+  type PaymentRail,
+} from "@/lib/payment-gateway";
 import { DEMO_CITIZEN_PHONE, DEMO_OTP_CODE } from "@/lib/demo-auth";
 import { gqTrack, gqTrackError } from "@/lib/gq-tracker";
 import { parseInvoiceImageFile } from "@/lib/invoice-ocr";
@@ -140,6 +147,8 @@ function HomeInner() {
   const [message, setMessage] = useState("");
   const [geo, setGeo] = useState<string | null>(null);
   const [timezone, setTimezone] = useState("Africa/Kigali");
+  const [scanPayables, setScanPayables] = useState<PaymentRail[]>([]);
+  const [showPaySheet, setShowPaySheet] = useState(false);
 
   useEffect(() => {
     gqTrack("app.session", {
@@ -153,7 +162,8 @@ function HomeInner() {
   }, [mode, entryChannel]);
 
   useEffect(() => {
-    const raw = new URLSearchParams(window.location.search).get("payload")?.trim();
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get("payload")?.trim();
     if (!raw || !raw.startsWith("GQ3|")) return;
     try {
       const next = parsePayload(raw);
@@ -161,6 +171,7 @@ function HomeInner() {
       setParsed(next);
       setMerchantName(next.name ?? "");
       setMomoCode(next.momoCode ?? "");
+      setScanPayables(readPayablesFromLocation(window.location.search));
       setEntryChannel("MOMO");
       setMode("momo");
       setMessage(t("qrConfirmed"));
@@ -208,11 +219,13 @@ function HomeInner() {
     return Math.round(p * q);
   }, [unitPrice, quantity]);
   const payAmount = lineTotal > 0 ? lineTotal : Number(myAmount) || 0;
-  const momoUssd = buildMomoUssd(momoDigits, payAmount);
 
-  function startMomoPay() {
-    if (lineTotal < 1 || !itemName.trim() || !merchantName.trim() || momoDigits.length < 6) return;
+  const payRails = useMemo(
+    () => buildPaymentRails(momoDigits, scanPayables),
+    [momoDigits, scanPayables],
+  );
 
+  function completeMomoPay(rail: PaymentRail) {
     const gq3: ParsedPayload = {
       version: "GQ3",
       tin: parsed?.tin ?? DEMO_TIN,
@@ -230,6 +243,7 @@ function HomeInner() {
       setPayload(gq3Payload);
     }
 
+    const ussd = buildRailUssd(rail, lineTotal);
     saveMomoCheckout({
       payload: gq3Payload,
       merchantName: merchantName.trim(),
@@ -238,16 +252,37 @@ function HomeInner() {
       unitPrice: Number(unitPrice.replace(",", ".")) || lineTotal,
       quantity: Number(quantity.replace(",", ".")) || 1,
       totalRwf: lineTotal,
-      ussd: momoUssd,
+      ussd,
       tin: gq3.tin,
       mrc: gq3.mrc,
       phone,
       geo,
       timezone,
+      paymentProvider: rail.provider,
+      paymentCode: rail.code,
     });
 
+    setShowPaySheet(false);
     setEntryChannel("MOMO");
     router.push("/pay/confirm");
+  }
+
+  function startMomoPay() {
+    if (lineTotal < 1 || !itemName.trim() || !merchantName.trim() || momoDigits.length < 6) return;
+    if (payRails.length > 1) {
+      setShowPaySheet(true);
+      return;
+    }
+    const rail =
+      payRails[0] ??
+      ({
+        id: "momo",
+        provider: "MTN MoMo",
+        code: momoDigits,
+        pillBg: "#F5B800",
+        pillText: "#1a1a1a",
+      } satisfies PaymentRail);
+    completeMomoPay(rail);
   }
 
   function applyInvoiceFields(parsed: ParsedInvoiceReceipt, source: "photo" | "paste" | "demo") {
@@ -990,6 +1025,15 @@ function HomeInner() {
       ) : null}
 
       {message ? <p className="mt-5 text-center text-sm leading-relaxed text-muted">{message}</p> : null}
+
+      <PaymentGatewaySheet
+        open={showPaySheet}
+        amountRwf={lineTotal}
+        merchantName={merchantName}
+        rails={payRails}
+        onPick={completeMomoPay}
+        onClose={() => setShowPaySheet(false)}
+      />
     </>
   );
 }

@@ -17,6 +17,8 @@ export type MomoCheckout = {
   phone: string;
   geo?: string | null;
   timezone: string;
+  paymentProvider?: string;
+  paymentCode?: string;
 };
 
 export function buildMomoUssd(momoDigits: string, amountRwf: number) {

@@ -111,9 +111,17 @@ function QrCard({ item }: { item: Scenario }) {
       <p className="mt-1 break-all font-mono text-[10px] text-emerald">{item.payload}</p>
       <div className="mt-3 grid gap-2">
         {isMomo ? (
-          <Link href={item.payload} className="block w-full rounded-xl bg-gold py-2 text-center text-xs font-bold text-white">
-            Ishyura
-          </Link>
+          <>
+            <Link href={item.payload} className="block w-full rounded-xl bg-gold py-2 text-center text-xs font-bold text-white">
+              Ishyura
+            </Link>
+            <Link
+              href={`/demo-qr/sticker?tin=${encodeURIComponent(item.tin)}&mrc=${encodeURIComponent(item.mrc)}&momo=${encodeURIComponent(item.momoCode ?? "")}&name=${encodeURIComponent(item.merchantName ?? item.business)}&auto=1`}
+              className="block w-full rounded-xl bg-navy py-2 text-center text-xs font-bold text-white"
+            >
+              Full payment sticker
+            </Link>
+          </>
         ) : null}
         <button
           type="button"
@@ -160,6 +168,12 @@ export default function DemoQrPage() {
           MRC = <span className="font-mono font-bold">VVVCCCXXXXXX</span> (vendor · seller · device #). Storage:{" "}
           {catalog?.storage ?? "in-memory"}.
         </p>
+        <Link
+          href="/demo-qr/sticker"
+          className="mt-4 inline-flex rounded-full bg-navy px-5 py-2.5 text-sm font-bold text-white"
+        >
+          Smart sticker builder →
+        </Link>
       </section>
 
       {message ? <p className="mt-6 rounded-2xl border border-line bg-paper p-4 text-sm">{message}</p> : null}
