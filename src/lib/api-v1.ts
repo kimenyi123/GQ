@@ -19,7 +19,14 @@ import {
   nextMrc,
 } from "./ids";
 import { prisma } from "./prisma";
-import { buildDynamicPayload, buildStaticPayload, parseQrPayload } from "./qr";
+import { DEMO_OTP_CODE, normalizeRwandaPhone } from "./demo-auth";
+import {
+  buildDynamicPayload,
+  buildGq3ScanUrl,
+  buildMomoPayload,
+  buildStaticPayload,
+  parseQrPayload,
+} from "./qr";
 import { maskPhone, parseDateParam, readJson, readRawJson, verifyOptionalHmac } from "./request-utils";
 import { transitionGlobalQr } from "./state-machine";
 import { fireVendorWebhook } from "./vendor-webhook";
@@ -90,6 +97,8 @@ async function resolveRequestInput(body: Record<string, unknown>) {
       mrc: parsed.mrc,
       docRef: parsed.version === "GQ2" ? parsed.docRef : undefined,
       docId: parsed.version === "GQ2" ? parsed.docRef : undefined,
+      momoCode: parsed.version === "GQ3" ? parsed.momoCode : undefined,
+      name: parsed.version === "GQ3" ? parsed.name : undefined,
     });
 
     if (mem.moveId || mem.mrc) {
@@ -103,6 +112,8 @@ async function resolveRequestInput(body: Record<string, unknown>) {
         moveId: mem.moveId,
         vendorId: mem.vendorId,
         type: mem.type,
+        momoCode: mem.momoCode ?? undefined,
+        merchantName: mem.merchantName ?? undefined,
       };
     }
 
@@ -192,16 +203,21 @@ export async function issueOtpRoute(request: Request) {
     return jsonErr("phone is required", 400);
   }
 
-  const { code, expiresIn } = await memIssueOtp(body.phone);
-  await prisma.otpSession.create({
-    data: {
-      id: generateOtpSessionId(),
-      phone: body.phone,
-      codeHash: await hashOtp(code),
-      expiresAt: new Date(Date.now() + expiresIn * 1000),
-    },
-  });
-  mockSms(body.phone, `Your Global QR code is ${code}`);
+  const phone = normalizeRwandaPhone(body.phone);
+  const { code, expiresIn } = await memIssueOtp(phone);
+  try {
+    await prisma.otpSession.create({
+      data: {
+        id: generateOtpSessionId(),
+        phone,
+        codeHash: await hashOtp(code),
+        expiresAt: new Date(Date.now() + expiresIn * 1000),
+      },
+    });
+  } catch {
+    /* in-memory pilot may run without DB */
+  }
+  mockSms(phone, `Your Global QR code is ${code}`);
 
   return jsonOk({ expiresIn, debugCode: code });
 }
@@ -213,28 +229,33 @@ export async function verifyOtpRoute(request: Request) {
     return jsonErr("phone and code are required", 400);
   }
 
-  const ok = await memVerifyOtp(body.phone, body.code);
+  const phone = normalizeRwandaPhone(body.phone);
+  const ok = await memVerifyOtp(phone, body.code);
   if (!ok) {
-    const session = await prisma.otpSession.findFirst({
-      where: {
-        phone: body.phone,
-        verified: false,
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    try {
+      const session = await prisma.otpSession.findFirst({
+        where: {
+          phone,
+          verified: false,
+          expiresAt: { gt: new Date() },
+        },
+        orderBy: { createdAt: "desc" },
+      });
 
-    if (!session || !(await verifyOtp(body.code, session.codeHash))) {
+      if (!session || !(await verifyOtp(body.code, session.codeHash))) {
+        return jsonErr("Invalid or expired OTP", 400);
+      }
+
+      await prisma.otpSession.update({
+        where: { id: session.id },
+        data: { verified: true },
+      });
+    } catch {
       return jsonErr("Invalid or expired OTP", 400);
     }
-
-    await prisma.otpSession.update({
-      where: { id: session.id },
-      data: { verified: true },
-    });
   }
 
-  const token = await issueJwt({ sub: body.phone, role: "citizen" });
+  const token = await issueJwt({ sub: phone, role: "citizen" });
   return jsonOk({ token, role: "citizen" });
 }
 
@@ -265,6 +286,9 @@ export async function createRequestRoute(request: Request) {
         ? Number(declaredRaw)
         : null;
 
+  const itemsOverride =
+    typeof body.items === "string" ? body.items : (resolved.items ?? null);
+
   const created = await memCreateRequest({
     phone: body.phone,
     tin: resolved.tin,
@@ -272,7 +296,7 @@ export async function createRequestRoute(request: Request) {
     docId: resolved.docId ?? resolved.docRef,
     moveId: resolved.moveId,
     amount: resolved.amount ?? null,
-    items: resolved.items ?? null,
+    items: itemsOverride,
     type: resolved.type,
     vendorId: resolved.vendorId,
     channel: typeof body.channel === "string" ? body.channel : "QR",
@@ -286,8 +310,13 @@ export async function createRequestRoute(request: Request) {
           : null,
     declaredAmount: Number.isFinite(declaredAmount as number) ? (declaredAmount as number) : null,
     paymentSms: typeof body.paymentSms === "string" ? body.paymentSms : null,
-    bank: typeof body.bank === "string" ? body.bank : null,
-    bankTxnId: typeof body.bankTxnId === "string" ? body.bankTxnId : null,
+    bank: resolved.type === "MOMO" ? "MOMO" : typeof body.bank === "string" ? body.bank : null,
+    bankTxnId:
+      typeof body.bankTxnId === "string"
+        ? body.bankTxnId
+        : typeof body.momoTxnId === "string"
+          ? body.momoTxnId
+          : null,
     bankAmount: typeof body.bankAmount === "number" ? body.bankAmount : null,
   });
 
@@ -1295,19 +1324,32 @@ export async function listTestQrsRoute() {
   const now = new Date().toISOString();
 
   const cards = db.catalog.map((s) => {
+    const gq3Text =
+      s.qrKind === "GQ3"
+        ? buildMomoPayload({
+            tin: s.tin,
+            mrc: s.mrc,
+            momoCode: s.momoCode ?? "",
+            name: s.merchantName ?? s.business,
+          })
+        : undefined;
+
     const payload =
       s.qrKind === "GQ1"
         ? buildStaticPayload({ tin: s.tin, mrc: s.mrc, issuedTs: now })
-        : buildDynamicPayload({
-            tin: s.tin,
-            mrc: s.mrc,
-            txTs: now,
-            docRef: s.docId,
-          });
+        : gq3Text
+          ? buildGq3ScanUrl(gq3Text)
+          : buildDynamicPayload({
+              tin: s.tin,
+              mrc: s.mrc,
+              txTs: now,
+              docRef: s.docId,
+            });
 
     return {
       ...s,
       payload,
+      ...(gq3Text ? { gq3Payload: gq3Text } : {}),
       docLabel: s.docType.replace("_", " "),
       deviceLabel: s.device,
     };
@@ -1346,6 +1388,7 @@ export async function listTestQrsRoute() {
         TABLE: cards.filter((c) => c.device === "TABLE").length,
         DESKTOP: cards.filter((c) => c.device === "DESKTOP").length,
         WINDOWS: cards.filter((c) => c.device === "WINDOWS").length,
+        MOMO: cards.filter((c) => c.device === "MOMO").length,
       },
       byBusiness: Object.fromEntries(byBusiness.map((b) => [b.name, b.qrs])),
     },

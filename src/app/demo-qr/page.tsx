@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { AppShell, Button, Card, apiJson } from "@/components/design";
@@ -18,6 +19,9 @@ type Scenario = {
   docId: string;
   amount: number;
   vat: number;
+  momoCode?: string;
+  merchantName?: string;
+  gq3Payload?: string;
   payload: string;
   explanation: string;
 };
@@ -43,6 +47,7 @@ type Catalog = {
 
 function QrCard({ item }: { item: Scenario }) {
   const [src, setSrc] = useState("");
+  const isMomo = item.qrKind === "GQ3" || item.device === "MOMO";
 
   useEffect(() => {
     QRCode.toDataURL(item.payload, { width: 220, margin: 1 }).then(setSrc).catch(() => setSrc(""));
@@ -54,7 +59,11 @@ function QrCard({ item }: { item: Scenario }) {
         <div>
           <p className="text-xs font-black uppercase tracking-wide text-emerald">{item.device}</p>
           <h3 className="mt-1 text-lg font-black text-navy">{item.locationLabel}</h3>
-          <p className="text-sm text-muted">{item.docType} · {item.docId}</p>
+          <p className="text-sm text-muted">
+            {isMomo
+              ? `${item.merchantName ?? item.business} · MoMo ${item.momoCode ?? "—"}`
+              : `${item.docType} · ${item.docId}`}
+          </p>
         </div>
         <span className="rounded-full bg-paper px-2 py-1 font-mono text-[10px] font-bold">{item.qrKind}</span>
       </div>
@@ -71,24 +80,49 @@ function QrCard({ item }: { item: Scenario }) {
           <dt className="text-muted">MRC</dt>
           <dd className="break-all font-mono font-bold">{item.mrc}</dd>
         </div>
-        <div>
-          <dt className="text-muted">Amount</dt>
-          <dd className="font-mono font-bold">RWF {item.amount.toLocaleString()}</dd>
-        </div>
-        <div>
-          <dt className="text-muted">VAT</dt>
-          <dd className="font-mono font-bold">RWF {item.vat.toLocaleString()}</dd>
-        </div>
+        {isMomo ? (
+          <>
+            <div>
+              <dt className="text-muted">MoMo</dt>
+              <dd className="font-mono font-bold">{item.momoCode}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">Name</dt>
+              <dd className="font-bold">{item.merchantName ?? item.business}</dd>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <dt className="text-muted">Amount</dt>
+              <dd className="font-mono font-bold">RWF {item.amount.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">VAT</dt>
+              <dd className="font-mono font-bold">RWF {item.vat.toLocaleString()}</dd>
+            </div>
+          </>
+        )}
       </dl>
       <p className="mt-2 text-xs text-muted">{item.explanation}</p>
-      <p className="mt-2 break-all font-mono text-[10px] text-muted">{item.payload}</p>
-      <button
-        type="button"
-        className="mt-3 w-full rounded-xl border border-line py-2 text-xs font-bold"
-        onClick={() => navigator.clipboard.writeText(item.payload)}
-      >
-        Copy payload
-      </button>
+      {item.gq3Payload ? (
+        <p className="mt-2 break-all font-mono text-[10px] text-muted">{item.gq3Payload}</p>
+      ) : null}
+      <p className="mt-1 break-all font-mono text-[10px] text-emerald">{item.payload}</p>
+      <div className="mt-3 grid gap-2">
+        {isMomo ? (
+          <Link href={item.payload} className="block w-full rounded-xl bg-gold py-2 text-center text-xs font-bold text-white">
+            Ishyura
+          </Link>
+        ) : null}
+        <button
+          type="button"
+          className="w-full rounded-xl border border-line py-2 text-xs font-bold"
+          onClick={() => navigator.clipboard.writeText(item.gq3Payload ?? item.payload)}
+        >
+          Copy {isMomo ? "GQ3" : "payload"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -159,7 +193,7 @@ export default function DemoQrPage() {
             >
               All businesses
             </button>
-            {["TABLE", "DESKTOP", "WINDOWS"].map((d) => (
+            {["TABLE", "DESKTOP", "WINDOWS", "MOMO"].map((d) => (
               <button
                 key={d}
                 type="button"

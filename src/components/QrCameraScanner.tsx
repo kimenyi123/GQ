@@ -49,7 +49,7 @@ function drawScaled(img: HTMLImageElement, maxSide = 1600) {
   return { canvas, ctx, w, h };
 }
 
-async function decodeQrFromFile(file: File): Promise<string> {
+export async function decodeQrFromFile(file: File): Promise<string> {
   const { img, revoke } = await loadImage(file);
   try {
     const { canvas, ctx, w, h } = drawScaled(img);

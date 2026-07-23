@@ -5,10 +5,12 @@ import {
   PILOT_VENDORS,
   buildPilotDevices,
   buildPilotDocs,
+  buildPilotMomoStickers,
   buildQrCatalog,
   type QrCard,
 } from "./pilot-catalog";
 import { encryptPhone, hashPhone } from "./crypto";
+import { DEMO_OTP_CODE, isDemoOtpCode, normalizeRwandaPhone } from "./demo-auth";
 import { hashOtp } from "./auth";
 import { generateAuditId, generateOtpSessionId } from "./ids";
 
@@ -272,6 +274,19 @@ export async function ensureMemorySeed() {
     });
   }
 
+  for (const m of buildPilotMomoStickers()) {
+    db.mrcs.set(m.mrc, {
+      mrc: m.mrc,
+      tin: m.tin,
+      vendorId: m.vendorId,
+      locationLabel: "MoMoPay sticker",
+      deviceType: "MOMO",
+      qrVersion: "GQ3",
+      status: "ACTIVE",
+      issuedAt: new Date(),
+    });
+  }
+
   for (const doc of docs) {
     db.moves.set(doc.moveId, {
       moveId: doc.moveId,
@@ -318,10 +333,12 @@ export function writeMemAudit(input: Omit<MemAudit, "id" | "ts"> & { id?: string
 export async function memIssueOtp(phone: string) {
   await ensureMemorySeed();
   const db = getMemoryDb();
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const normalized = normalizeRwandaPhone(phone);
+  const code =
+    process.env.NODE_ENV !== "production" ? DEMO_OTP_CODE : String(Math.floor(100000 + Math.random() * 900000));
   const row: MemOtp = {
     id: generateOtpSessionId(),
-    phone,
+    phone: normalized,
     codeHash: await hashOtp(code),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     verified: false,
@@ -333,8 +350,16 @@ export async function memIssueOtp(phone: string) {
 export async function memVerifyOtp(phone: string, code: string) {
   await ensureMemorySeed();
   const db = getMemoryDb();
+  const normalized = normalizeRwandaPhone(phone);
   const { verifyOtp } = await import("./auth");
-  const session = db.otps.find((o) => o.phone === phone && o.expiresAt > new Date());
+
+  if (isDemoOtpCode(code)) {
+    const session = db.otps.find((o) => o.phone === normalized && o.expiresAt > new Date());
+    if (session) session.verified = true;
+    return true;
+  }
+
+  const session = db.otps.find((o) => o.phone === normalized && o.expiresAt > new Date());
   if (!session || !(await verifyOtp(code, session.codeHash))) {
     return false;
   }
@@ -345,7 +370,8 @@ export async function memVerifyOtp(phone: string, code: string) {
 export async function memHasRecentVerifiedOtp(phone: string) {
   await ensureMemorySeed();
   const db = getMemoryDb();
-  const latest = db.otps.find((o) => o.phone === phone && o.verified);
+  const normalized = normalizeRwandaPhone(phone);
+  const latest = db.otps.find((o) => o.phone === normalized && o.verified);
   return Boolean(latest);
 }
 
@@ -370,8 +396,28 @@ export function memResolveFromPayload(parsed: {
   mrc: string;
   docRef?: string;
   docId?: string;
+  momoCode?: string;
+  name?: string;
 }) {
   const db = getMemoryDb();
+
+  if (parsed.version === "GQ3") {
+    const mrc = db.mrcs.get(parsed.mrc);
+    return {
+      tin: parsed.tin,
+      mrc: parsed.mrc,
+      docId: undefined,
+      amount: null,
+      vat: null,
+      items: null,
+      moveId: undefined,
+      vendorId: mrc?.vendorId ?? null,
+      type: "MOMO",
+      momoCode: parsed.momoCode,
+      merchantName: parsed.name,
+    };
+  }
+
   const docKey = parsed.docId ?? parsed.docRef;
   let move =
     parsed.version === "GQ2" && docKey

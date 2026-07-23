@@ -11,6 +11,7 @@ import {
   inputClass,
   useI18n,
 } from "@/components/design";
+import { DEMO_CITIZEN_PHONE, DEMO_OTP_CODE } from "@/lib/demo-auth";
 
 type Row = {
   gqId: string;
@@ -28,9 +29,9 @@ type TokenResponse = { token: string };
 
 function MyRequestsInner() {
   const { t } = useI18n();
-  const [phone, setPhone] = useState("+250788000001");
-  const [otp, setOtp] = useState("");
-  const [debugOtp, setDebugOtp] = useState("");
+  const [phone, setPhone] = useState(DEMO_CITIZEN_PHONE);
+  const [otp, setOtp] = useState(DEMO_OTP_CODE);
+  const [debugOtp, setDebugOtp] = useState(DEMO_OTP_CODE);
   const [rows, setRows] = useState<Row[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,7 +72,8 @@ function MyRequestsInner() {
         method: "POST",
         body: JSON.stringify({ phone }),
       });
-      setDebugOtp(data.debugCode ?? "123456");
+      setDebugOtp(data.debugCode ?? DEMO_OTP_CODE);
+      setOtp(data.debugCode ?? DEMO_OTP_CODE);
       setMessage(t("otpSent"));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : t("menu.loginFailed"));
@@ -84,9 +86,10 @@ function MyRequestsInner() {
     setBusy(true);
     setMessage("");
     try {
+      await apiJson("/api/v1/otp/issue", { method: "POST", body: JSON.stringify({ phone }) });
       const data = await apiJson<TokenResponse>("/api/v1/otp/verify", {
         method: "POST",
-        body: JSON.stringify({ phone, code: otp || debugOtp || "123456" }),
+        body: JSON.stringify({ phone, code: otp || debugOtp || DEMO_OTP_CODE }),
       });
       sessionStorage.setItem("gq_citizen_jwt", data.token);
       sessionStorage.setItem("gq_role", "citizen");
@@ -109,6 +112,9 @@ function MyRequestsInner() {
       {!authed ? (
         <div className="mt-6 space-y-3 rounded-2xl border border-line bg-white p-4">
           <p className="text-sm text-muted">{t("phoneHint")}</p>
+          <p className="text-center text-xs text-emerald">
+            Demo: {DEMO_CITIZEN_PHONE} · OTP {DEMO_OTP_CODE}
+          </p>
           <Field label={t("phoneLabel")}>
             <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </Field>
@@ -117,19 +123,14 @@ function MyRequestsInner() {
               className={inputClass}
               value={otp}
               onChange={(e) => setOtp(e.target.value)}
-              placeholder={debugOtp || "123456"}
+              placeholder={debugOtp || DEMO_OTP_CODE}
             />
           </Field>
-          {debugOtp ? (
-            <p className="text-center text-sm text-muted">
-              Demo OTP: <span className="font-mono font-bold">{debugOtp}</span>
-            </p>
-          ) : null}
-          <Button variant="ghost" className="w-full py-3 text-[15px]" onClick={issueOtp} disabled={busy}>
+          <Button variant="ghost" className="w-full py-3 text-[15px]" onClick={() => void issueOtp()} disabled={busy}>
             {t("otpSend")}
           </Button>
-          <Button variant="primary" className="w-full" onClick={verifyAndLoad} disabled={busy}>
-            {t("my.viewRequests")}
+          <Button variant="primary" className="w-full" onClick={() => void verifyAndLoad()} disabled={busy}>
+            {t("my.viewRequests")} (demo)
           </Button>
         </div>
       ) : (

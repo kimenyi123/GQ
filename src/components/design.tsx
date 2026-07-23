@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { getDict, isLocale, type Locale } from "@/i18n";
+import { GqDebugShare } from "@/components/GqDebugShare";
 
 type I18nValue = {
   lang: Locale;
@@ -92,18 +93,14 @@ const FLAG_ALT: Record<string, string> = {
 };
 
 export function RraHeader() {
-  const { t } = useI18n();
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div className="flex w-full max-w-[min(100%,340px)] flex-col items-center rounded-xl bg-white px-3 py-2">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/brand/rra-logo.png"
         alt="Rwanda Revenue Authority"
-        className="block h-[52px] w-auto"
+        className="block h-auto w-full max-h-[72px] object-contain"
       />
-      <small className="text-[10px] font-bold uppercase tracking-[0.6px] text-muted">
-        {t("rra.brand")}
-      </small>
     </div>
   );
 }
@@ -213,6 +210,9 @@ function CitizenShellInner({ children }: { children: ReactNode }) {
           {children}
         </div>
       </main>
+      <div className="mx-auto w-full max-w-[460px] px-[22px] pb-3">
+        <GqDebugShare />
+      </div>
       <Footer />
     </div>
   );
@@ -233,19 +233,13 @@ export function AppShell({
         <div className={`mx-auto ${wide ? "max-w-7xl" : "max-w-3xl"}`}>
           <div className="rounded-[2rem] border border-line bg-card/95 p-5 shadow-sm sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <Link href="/" className="flex items-center gap-3">
+              <Link href="/" className="flex max-w-[280px] items-center rounded-xl bg-white px-3 py-2">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/brand/rra-logo.png"
                   alt="Rwanda Revenue Authority"
-                  className="h-12 w-auto"
+                  className="h-auto w-full max-h-14 object-contain"
                 />
-                <div>
-                  <p className="text-sm font-bold uppercase tracking-[0.24em] text-navy">
-                    Rwanda Revenue Authority
-                  </p>
-                  <p className="text-sm text-muted">ebm.rw · Global QR</p>
-                </div>
               </Link>
               <BurgerMenu />
             </div>

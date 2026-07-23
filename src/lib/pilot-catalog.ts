@@ -1,8 +1,8 @@
 import { buildMrc, code3 } from "./mrc-format";
 
-export type DeviceKind = "TABLE" | "DESKTOP" | "WINDOWS";
+export type DeviceKind = "TABLE" | "DESKTOP" | "WINDOWS" | "MOMO";
 export type DocType = "ORDER" | "PROFORMA" | "DELIVERY_NOTE";
-export type QrKind = "GQ1" | "GQ2";
+export type QrKind = "GQ1" | "GQ2" | "GQ3";
 
 export type PilotVendor = {
   vendorId: string;
@@ -21,6 +21,8 @@ export type PilotSeller = {
   phone: string;
   email: string;
   defaultDocType: DocType;
+  /** Merchant MoMoPay code (digits) — used for GQ3 stickers */
+  momoCode?: string;
 };
 
 export type PilotDevice = {
@@ -85,6 +87,7 @@ export const PILOT_SELLERS: PilotSeller[] = [
     phone: "+250788000101",
     email: "seller@serena.demo",
     defaultDocType: "ORDER",
+    momoCode: "0788101",
   },
   {
     tin: "100000102",
@@ -95,6 +98,7 @@ export const PILOT_SELLERS: PilotSeller[] = [
     phone: "+250788000102",
     email: "seller@burrows.demo",
     defaultDocType: "ORDER",
+    momoCode: "0788102",
   },
   {
     tin: "100000103",
@@ -105,6 +109,7 @@ export const PILOT_SELLERS: PilotSeller[] = [
     phone: "+250788000103",
     email: "seller@cheazlando.demo",
     defaultDocType: "ORDER",
+    momoCode: "0788103",
   },
   {
     tin: "100000104",
@@ -115,6 +120,18 @@ export const PILOT_SELLERS: PilotSeller[] = [
     phone: "+250788000104",
     email: "seller@butique.demo",
     defaultDocType: "DELIVERY_NOTE",
+    momoCode: "0788104",
+  },
+  {
+    tin: "100000105",
+    name: "IMPACT PHARMA LTD",
+    codeLabel: "Impact",
+    sector: "pharmacy",
+    vendorId: "VND-ISHYIGA",
+    phone: "+250788000105",
+    email: "seller@impactpharma.demo",
+    defaultDocType: "ORDER",
+    momoCode: "077800",
   },
 ];
 
@@ -149,6 +166,11 @@ const DEVICE_SPECS: Record<string, { vendorLabel: string; stack: string; devices
     vendorLabel: "NoSoftware",
     stack: "NoSoftware (table / Windows)",
     devices: [{ kind: "WINDOWS", count: 1 }],
+  },
+  "100000105": {
+    vendorLabel: "Ishyiga",
+    stack: "Pharmacy · MoMoPay sticker (real sample)",
+    devices: [],
   },
 };
 
@@ -224,15 +246,55 @@ export type QrCard = {
   docId: string;
   amount: number;
   vat: number;
+  momoCode?: string;
+  merchantName?: string;
   explanation: string;
 };
+
+export function buildPilotMomoStickers() {
+  const devices = buildPilotDevices();
+  const maxIndexByTin = new Map<string, number>();
+  for (const d of devices) {
+    maxIndexByTin.set(d.tin, Math.max(maxIndexByTin.get(d.tin) ?? 0, d.deviceIndex));
+  }
+
+  const out: Array<{
+    tin: string;
+    business: string;
+    merchantName: string;
+    mrc: string;
+    momoCode: string;
+    vendorId: string | null;
+    deviceIndex: number;
+    stack: string;
+  }> = [];
+
+  for (const seller of PILOT_SELLERS) {
+    const spec = DEVICE_SPECS[seller.tin];
+    if (!spec || !seller.momoCode) continue;
+    const deviceIndex = (maxIndexByTin.get(seller.tin) ?? 0) + 1;
+    const mrc = buildMrc(spec.vendorLabel, seller.codeLabel, deviceIndex);
+    out.push({
+      tin: seller.tin,
+      business: seller.name,
+      merchantName: seller.name,
+      mrc,
+      momoCode: seller.momoCode,
+      vendorId: seller.vendorId,
+      deviceIndex,
+      stack: spec.stack,
+    });
+  }
+
+  return out;
+}
 
 export function buildQrCatalog(): QrCard[] {
   const devices = buildPilotDevices();
   const docs = buildPilotDocs(devices);
   const docByMrc = new Map(docs.map((d) => [d.mrc, d]));
 
-  return devices.map((d) => {
+  const deviceCards = devices.map((d) => {
     const seller = PILOT_SELLERS.find((s) => s.tin === d.tin)!;
     const vendor = PILOT_VENDORS.find((v) => v.vendorId === d.vendorId);
     const doc = docByMrc.get(d.mrc)!;
@@ -260,4 +322,30 @@ export function buildQrCatalog(): QrCard[] {
           : `Screen QR · includes doc ${doc.docId} · ${doc.docType}`,
     };
   });
+
+  const momoCards = buildPilotMomoStickers().map((m) => {
+    const vendor = PILOT_VENDORS.find((v) => v.vendorId === m.vendorId);
+    return {
+      id: `momo-${m.tin}-${m.mrc}`,
+      business: m.business,
+      tin: m.tin,
+      mrc: m.mrc,
+      stack: m.stack,
+      vendorId: m.vendorId,
+      vendorName: vendor?.name ?? "None",
+      device: "MOMO" as const,
+      deviceIndex: m.deviceIndex,
+      locationLabel: "MoMoPay sticker",
+      qrKind: "GQ3" as const,
+      docType: "ORDER" as const,
+      docId: "—",
+      amount: 0,
+      vat: 0,
+      momoCode: m.momoCode,
+      merchantName: m.merchantName,
+      explanation: `GQ3 · ${m.merchantName} · MoMo ${m.momoCode} · scan opens Ishyura on phone`,
+    };
+  });
+
+  return [...deviceCards, ...momoCards];
 }
