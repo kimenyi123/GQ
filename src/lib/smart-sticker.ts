@@ -1,3 +1,4 @@
+import { appendShopToScanUrl, normalizeShopGroup, sectorDefaultGroup, type ShopProductGroup } from "./ihute-shop";
 import { resolvePublicAppUrl } from "./app-url";
 import { buildGq3ScanUrl, buildMomoPayload } from "./qr";
 import { appendPayablesToScanUrl } from "./payment-gateway";
@@ -31,6 +32,12 @@ export type SmartStickerConfig = {
   extraNote: string;
   /** Base URL inside the QR (production: https://ebm.rw) */
   appBaseUrl: string;
+  /** ihute.rw/shop-with-me/{nickname} */
+  shopNickname: string;
+  /** pharmacy | boutique | supermarket — picks default ?group= */
+  shopSector: string;
+  /** imiti | ibiryo — product group deep link */
+  shopGroup: ShopProductGroup | "";
 };
 
 export function defaultStickerConfig(): SmartStickerConfig {
@@ -58,6 +65,9 @@ export function defaultStickerConfig(): SmartStickerConfig {
     ihuteTagline: "Smart Shop · Smart Business",
     extraNote: "",
     appBaseUrl: resolvePublicAppUrl(),
+    shopNickname: "tetaremera",
+    shopSector: "pharmacy",
+    shopGroup: "imiti",
   };
 }
 
@@ -69,6 +79,12 @@ export function stickerFromQuery(params: URLSearchParams): Partial<SmartStickerC
   if (params.get("name")) {
     partial.izina = params.get("name")!;
     partial.payablesFooter = params.get("name")!;
+  }
+  if (params.get("shop")) partial.shopNickname = params.get("shop")!;
+  if (params.get("group")) partial.shopGroup = normalizeShopGroup(params.get("group")!);
+  if (params.get("sector")) {
+    partial.shopSector = params.get("sector")!;
+    if (!params.get("group")) partial.shopGroup = sectorDefaultGroup(params.get("sector")!);
   }
   return partial;
 }
@@ -84,7 +100,9 @@ export function buildStickerQrPayload(config: SmartStickerConfig) {
 
 export function buildStickerScanUrl(config: SmartStickerConfig) {
   const scan = buildGq3ScanUrl(buildStickerQrPayload(config), config.appBaseUrl);
-  return appendPayablesToScanUrl(scan, config.payables);
+  const withPay = appendPayablesToScanUrl(scan, config.payables);
+  const group = config.shopGroup || sectorDefaultGroup(config.shopSector);
+  return appendShopToScanUrl(withPay, config.shopNickname, group);
 }
 
 export function newPayableRow(): PayableAccount {

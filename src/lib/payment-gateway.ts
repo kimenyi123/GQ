@@ -13,9 +13,7 @@ const PAYABLES_PARAM = "pay";
 
 /** Compact URL param: Access Bank~4555~#F5B800|Airtel~55512~#E4002B */
 export function encodePayablesUrl(payables: PayableAccount[]): string {
-  return payables
-    .map((p) => `${encodeURIComponent(p.provider)}~${p.code}~${p.pillBg.replace("#", "")}`)
-    .join("|");
+  return payables.map((p) => `${p.provider}~${p.code}~${p.pillBg.replace("#", "")}`).join("|");
 }
 
 export function decodePayablesUrl(raw: string | null): PaymentRail[] {

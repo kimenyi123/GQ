@@ -3,9 +3,16 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell, Button, Field, inputClass } from "@/components/design";
 import { renderStickerPng } from "@/lib/sticker-canvas";
+import { APP_URL_PRESETS, matchAppUrlPreset } from "@/lib/app-url";
+import {
+  buildIhuteShopUrl,
+  SHOP_PRODUCT_GROUPS,
+  SHOP_SECTOR_PRESETS,
+  shopGroupLabel,
+} from "@/lib/ihute-shop";
 import {
   buildStickerQrPayload,
   buildStickerScanUrl,
@@ -97,6 +104,8 @@ export default function StickerBuilderPage() {
     setConfig((c) => ({ ...c, ...partial }));
     setGenerated(false);
   }, []);
+
+  const liveScanUrl = useMemo(() => buildStickerScanUrl(config), [config]);
 
   const generate = useCallback(async () => {
     setBusy(true);
@@ -236,7 +245,22 @@ export default function StickerBuilderPage() {
                 <input className={inputClass} value={config.izina} onChange={(e) => patch({ izina: e.target.value })} />
               </Field>
               <div className="sm:col-span-2">
-                <Field label="QR scan URL (ebm.rw)">
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted">QR base URL</span>
+                <div className="mb-3 flex flex-wrap gap-4">
+                  {APP_URL_PRESETS.map((preset) => (
+                    <label key={preset.id} className="flex cursor-pointer items-center gap-2 text-sm font-bold text-navy">
+                      <input
+                        type="radio"
+                        name="appBasePreset"
+                        checked={matchAppUrlPreset(config.appBaseUrl) === preset.id}
+                        onChange={() => patch({ appBaseUrl: preset.url })}
+                        className="h-4 w-4 accent-navy"
+                      />
+                      {preset.label}
+                    </label>
+                  ))}
+                </div>
+                <Field label="URL in QR (always editable)">
                   <input
                     className={inputClass}
                     value={config.appBaseUrl}
@@ -245,8 +269,74 @@ export default function StickerBuilderPage() {
                   />
                 </Field>
                 <p className="mt-1 text-xs text-muted">
-                  Encoded in the QR as{" "}
-                  <span className="font-mono">{config.appBaseUrl || "https://ebm.rw"}/?payload=GQ3|…</span>
+                  Encoded as{" "}
+                  <span className="font-mono break-all">{liveScanUrl}</span>
+                </p>
+                <a
+                  href={liveScanUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex rounded-xl bg-navy px-4 py-2 text-xs font-bold text-white"
+                >
+                  Open URL ↗
+                </a>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="Ihute shop nickname">
+                  <input
+                    className={inputClass}
+                    value={config.shopNickname}
+                    onChange={(e) => patch({ shopNickname: e.target.value })}
+                    placeholder="tetaremera"
+                  />
+                </Field>
+                <Field label="Shop sector (sets product group)">
+                  <div className="flex flex-wrap gap-2">
+                    {SHOP_SECTOR_PRESETS.map((sector) => (
+                      <button
+                        key={sector.id}
+                        type="button"
+                        onClick={() =>
+                          patch({
+                            shopSector: sector.id,
+                            shopGroup: sector.group,
+                          })
+                        }
+                        className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+                          config.shopSector === sector.id
+                            ? "border-navy bg-navy text-white"
+                            : "border-line bg-white text-navy"
+                        }`}
+                      >
+                        {sector.label} · {shopGroupLabel(sector.group)}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="Product group in QR">
+                  <div className="flex flex-wrap gap-2">
+                    {SHOP_PRODUCT_GROUPS.map((group) => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        onClick={() => patch({ shopGroup: group.id })}
+                        className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+                          config.shopGroup === group.id
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-line bg-white text-navy"
+                        }`}
+                      >
+                        {group.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-muted">{SHOP_PRODUCT_GROUPS.find((g) => g.id === config.shopGroup)?.hint}</p>
+                </Field>
+                <p className="mt-1 text-xs text-muted">
+                  Opens on scan:{" "}
+                  <span className="font-mono text-emerald break-all">
+                    {buildIhuteShopUrl(config.shopNickname) || "ihute.rw/shop-with-me/nickname"}
+                  </span>
                 </p>
               </div>
             </div>
@@ -312,6 +402,14 @@ export default function StickerBuilderPage() {
               >
                 Copy scan URL
               </Button>
+              <a
+                href={scanUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full rounded-xl border border-line py-3 text-center text-sm font-bold text-navy sm:col-span-2"
+              >
+                Open URL ↗
+              </a>
             </div>
           ) : null}
 

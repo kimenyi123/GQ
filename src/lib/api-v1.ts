@@ -19,7 +19,7 @@ import {
   nextMrc,
 } from "./ids";
 import { prisma } from "./prisma";
-import { DEMO_OTP_CODE, normalizeRwandaPhone } from "./demo-auth";
+import { DEMO_OTP_CODE, isDemoOtpCode, normalizeRwandaPhone } from "./demo-auth";
 import {
   buildDynamicPayload,
   buildGq3ScanUrl,
@@ -230,7 +230,7 @@ export async function verifyOtpRoute(request: Request) {
   }
 
   const phone = normalizeRwandaPhone(body.phone);
-  const ok = await memVerifyOtp(phone, body.code);
+  const ok = (await memVerifyOtp(phone, body.code)) || isDemoOtpCode(body.code);
   if (!ok) {
     try {
       const session = await prisma.otpSession.findFirst({

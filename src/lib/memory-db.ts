@@ -10,7 +10,7 @@ import {
   type QrCard,
 } from "./pilot-catalog";
 import { encryptPhone, hashPhone } from "./crypto";
-import { DEMO_OTP_CODE, isDemoOtpCode, normalizeRwandaPhone } from "./demo-auth";
+import { DEMO_OTP_CODE, isDemoOtpCode, isOpenLoginEnabled, normalizeRwandaPhone } from "./demo-auth";
 import { hashOtp } from "./auth";
 import { generateAuditId, generateOtpSessionId } from "./ids";
 
@@ -334,8 +334,7 @@ export async function memIssueOtp(phone: string) {
   await ensureMemorySeed();
   const db = getMemoryDb();
   const normalized = normalizeRwandaPhone(phone);
-  const code =
-    process.env.NODE_ENV !== "production" ? DEMO_OTP_CODE : String(Math.floor(100000 + Math.random() * 900000));
+  const code = isOpenLoginEnabled() ? DEMO_OTP_CODE : String(Math.floor(100000 + Math.random() * 900000));
   const row: MemOtp = {
     id: generateOtpSessionId(),
     phone: normalized,

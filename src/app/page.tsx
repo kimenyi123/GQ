@@ -16,13 +16,14 @@ import {
 } from "@/components/design";
 import { QrCameraScanner, decodeQrFromFile } from "@/components/QrCameraScanner";
 import { PaymentGatewaySheet } from "@/components/PaymentGatewaySheet";
+import { buildIhuteShopUrl, SHOP_PRODUCT_GROUPS, SHOP_SECTOR_PRESETS, shopGroupLabel } from "@/lib/ihute-shop";
 import { saveMomoCheckout } from "@/lib/momo-payment";
 import {
   buildPaymentRails,
   buildRailUssd,
-  readPayablesFromLocation,
   type PaymentRail,
 } from "@/lib/payment-gateway";
+import { readScanContext } from "@/lib/scan-context";
 import { DEMO_CITIZEN_PHONE, DEMO_OTP_CODE } from "@/lib/demo-auth";
 import { gqTrack, gqTrackError } from "@/lib/gq-tracker";
 import { parseInvoiceImageFile } from "@/lib/invoice-ocr";
@@ -148,6 +149,8 @@ function HomeInner() {
   const [geo, setGeo] = useState<string | null>(null);
   const [timezone, setTimezone] = useState("Africa/Kigali");
   const [scanPayables, setScanPayables] = useState<PaymentRail[]>([]);
+  const [shopNickname, setShopNickname] = useState("");
+  const [shopGroup, setShopGroup] = useState<"" | "imiti" | "ibiryo">("");
   const [showPaySheet, setShowPaySheet] = useState(false);
 
   useEffect(() => {
@@ -162,8 +165,8 @@ function HomeInner() {
   }, [mode, entryChannel]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const raw = params.get("payload")?.trim();
+    const ctx = readScanContext(window.location.search);
+    const raw = ctx.payload ?? new URLSearchParams(window.location.search).get("payload")?.trim();
     if (!raw || !raw.startsWith("GQ3|")) return;
     try {
       const next = parsePayload(raw);
@@ -171,7 +174,10 @@ function HomeInner() {
       setParsed(next);
       setMerchantName(next.name ?? "");
       setMomoCode(next.momoCode ?? "");
-      setScanPayables(readPayablesFromLocation(window.location.search));
+      setScanPayables(ctx.payables);
+      setShopNickname(ctx.shopNickname);
+      setShopGroup(ctx.shopGroup);
+      if (ctx.shopGroup) setItemName(shopGroupLabel(ctx.shopGroup));
       setEntryChannel("MOMO");
       setMode("momo");
       setMessage(t("qrConfirmed"));
@@ -436,6 +442,7 @@ function HomeInner() {
   const tryParse = useCallback(
     (value = payload) => {
       try {
+        const ctx = readScanContext(value);
         const gq3 = extractGq3PayloadFromScan(value);
         const normalized = gq3 ?? value.trim();
         const next = parsePayload(normalized);
@@ -446,6 +453,10 @@ function HomeInner() {
         if (next.version === "GQ3") {
           setMerchantName(next.name ?? "");
           setMomoCode(next.momoCode ?? "");
+          setScanPayables(ctx.payables);
+          setShopNickname(ctx.shopNickname);
+          setShopGroup(ctx.shopGroup);
+          if (ctx.shopGroup) setItemName(shopGroupLabel(ctx.shopGroup));
           setEntryChannel("MOMO");
           setMode("momo");
         } else {
@@ -813,6 +824,19 @@ function HomeInner() {
                 {parsed.tin} · {parsed.mrc}
               </p>
             </div>
+          ) : null}
+          {shopNickname ? (
+            <a
+              href={buildIhuteShopUrl(shopNickname)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-2xl border-2 border-gold bg-gold/15 px-4 py-4 text-center shadow-sm transition active:scale-[0.99]"
+            >
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-muted">Shop to</span>
+              <span className="mt-1 block text-base font-black leading-tight text-navy">
+                ihute.rw/shop-with-me/{shopNickname}
+              </span>
+            </a>
           ) : null}
           <Field label="Ibyo ndagura">
             <input
