@@ -20,16 +20,21 @@ function stringify(value: unknown) {
 }
 
 export async function writeAudit(input: AuditInput) {
-  return prisma.auditLog.create({
-    data: {
-      id: generateAuditId(),
-      actor: input.actor,
-      role: input.role,
-      action: input.action,
-      entity: input.entity,
-      entityId: input.entityId,
-      before: stringify(input.before),
-      after: stringify(input.after),
-    },
-  });
+  try {
+    return await prisma.auditLog.create({
+      data: {
+        id: generateAuditId(),
+        actor: input.actor,
+        role: input.role,
+        action: input.action,
+        entity: input.entity,
+        entityId: input.entityId,
+        before: stringify(input.before),
+        after: stringify(input.after),
+      },
+    });
+  } catch (error) {
+    console.warn("[AUDIT_WRITE_FAILED]", error);
+    return null;
+  }
 }

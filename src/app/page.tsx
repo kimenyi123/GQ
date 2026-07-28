@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   CitizenShell,
@@ -24,7 +24,7 @@ import {
   type PaymentRail,
 } from "@/lib/payment-gateway";
 import { readScanContext } from "@/lib/scan-context";
-import { DEMO_CITIZEN_PHONE, DEMO_OTP_CODE } from "@/lib/demo-auth";
+import { DEMO_CITIZEN_PHONE, DEMO_OTP_CODE, isOpenLoginClientHint } from "@/lib/demo-auth";
 import { gqTrack, gqTrackError } from "@/lib/gq-tracker";
 import { parseInvoiceImageFile } from "@/lib/invoice-ocr";
 import { parseInvoiceReceiptText, type ParsedInvoiceReceipt } from "@/lib/invoice-receipt";
@@ -54,50 +54,81 @@ function parsePayload(value: string): ParsedPayload {
   return { version: "GQ2", tin: parsed.tin, mrc: parsed.mrc, docRef: parsed.docRef };
 }
 
-function IconQr() {
+function IconQrColor() {
   return (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <path d="M14 14h2v2h-2zm4 0h2v2h-2zm-4 4h2v2h-2zm4 0h2v2h-2z" fill="currentColor" stroke="none" />
+    <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden>
+      <rect x="4" y="4" width="10" height="10" rx="2" fill="#fff" opacity="0.95" />
+      <rect x="6" y="6" width="6" height="6" rx="1" fill="#4f46e5" />
+      <rect x="18" y="4" width="10" height="10" rx="2" fill="#fff" opacity="0.95" />
+      <rect x="20" y="6" width="6" height="6" rx="1" fill="#a855f7" />
+      <rect x="4" y="18" width="10" height="10" rx="2" fill="#fff" opacity="0.95" />
+      <rect x="6" y="20" width="6" height="6" rx="1" fill="#22d3ee" />
+      <rect x="18" y="18" width="4" height="4" fill="#fff" />
+      <rect x="24" y="18" width="4" height="4" fill="#fff" />
+      <rect x="18" y="24" width="4" height="4" fill="#fff" />
+      <rect x="24" y="24" width="4" height="4" fill="#fbbf24" />
     </svg>
   );
 }
 
-function IconKeyboard() {
+function IconCameraColor() {
   return (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <rect x="2" y="6" width="20" height="12" rx="2" />
-      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" strokeLinecap="round" />
+    <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden>
+      <path
+        d="M6 11h4l2-3h10l2 3h4a2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V13a2 2 0 012-2z"
+        fill="#fff"
+        opacity="0.95"
+      />
+      <circle cx="16" cy="18" r="6" fill="#fb923c" />
+      <circle cx="16" cy="18" r="4" fill="#fff" opacity="0.9" />
+      <circle cx="16" cy="18" r="2.2" fill="#ea580c" />
+      <circle cx="24" cy="13" r="1.5" fill="#fde047" />
     </svg>
   );
 }
 
-function IconReceipt() {
+function IconKeyboardColor() {
   return (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <path d="M8 3h8l2 2v16l-2-1-2 1-2-1-2 1-2-1-2 1V5l2-2z" />
-      <path d="M9 9h6M9 13h6M9 17h4" strokeLinecap="round" />
+    <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden>
+      <rect x="4" y="10" width="24" height="14" rx="3" fill="#fff" opacity="0.95" />
+      <rect x="7" y="13" width="4" height="3" rx="1" fill="#14b8a6" />
+      <rect x="12" y="13" width="4" height="3" rx="1" fill="#06b6d4" />
+      <rect x="17" y="13" width="4" height="3" rx="1" fill="#0ea5e9" />
+      <rect x="22" y="13" width="4" height="3" rx="1" fill="#6366f1" />
+      <rect x="9" y="18" width="14" height="3" rx="1.5" fill="#2dd4bf" />
     </svg>
   );
 }
 
-function IconMomo() {
+function IconPayColor() {
   return (
-    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-      <rect x="7" y="2" width="10" height="20" rx="2" />
-      <path d="M10 18h4" strokeLinecap="round" />
-      <path d="M9 6h6M9 9h4" strokeLinecap="round" />
-      <circle cx="17" cy="7" r="3" fill="currentColor" stroke="none" />
+    <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden>
+      <rect x="8" y="4" width="16" height="24" rx="3" fill="#fff" opacity="0.95" />
+      <rect x="10" y="7" width="12" height="14" rx="2" fill="#fef08a" />
+      <circle cx="16" cy="22" r="1.5" fill="#854d0e" />
+      <path d="M20 2h6v6h-6z" fill="#22c55e" />
+      <text x="21" y="7" fontSize="5" fontWeight="bold" fill="#fff">
+        RWF
+      </text>
+      <circle cx="24" cy="12" r="5" fill="#facc15" stroke="#ca8a04" strokeWidth="1" />
+      <text x="24" y="14" textAnchor="middle" fontSize="6" fontWeight="bold" fill="#713f12">
+        ₣
+      </text>
     </svg>
   );
 }
+
+const ENTRY_TONES: Record<string, string> = {
+  qr: "bg-gradient-to-br from-violet-500 via-indigo-500 to-purple-600 shadow-lg shadow-indigo-200/60",
+  photo: "bg-gradient-to-br from-orange-400 via-rose-500 to-pink-500 shadow-lg shadow-orange-200/60",
+  type: "bg-gradient-to-br from-cyan-400 via-teal-500 to-emerald-600 shadow-lg shadow-teal-200/60",
+  pay: "bg-gradient-to-br from-amber-400 via-yellow-400 to-lime-500 shadow-lg shadow-amber-200/60",
+};
 
 function EntryGrid({
   items,
 }: {
-  items: { id: string; label: string; icon: ReactNode; onClick: () => void }[];
+  items: { id: string; label: string; icon: ReactNode; tone: keyof typeof ENTRY_TONES; onClick: () => void }[];
 }) {
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -106,10 +137,14 @@ function EntryGrid({
           key={item.id}
           type="button"
           onClick={item.onClick}
-          className="flex min-h-[108px] flex-col items-center justify-center gap-2.5 rounded-2xl border border-line bg-white px-3 py-4 text-center shadow-sm transition hover:border-emerald/40 hover:bg-emerald/[0.03] active:scale-[0.98]"
+          className="flex min-h-[112px] flex-col items-center justify-center gap-2.5 rounded-2xl border border-line bg-white px-3 py-4 text-center shadow-sm transition hover:border-emerald/40 hover:shadow-md active:scale-[0.98]"
         >
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-navy/5 text-navy">{item.icon}</span>
-          <span className="text-[13px] font-bold leading-tight text-navy">{item.label}</span>
+          <span
+            className={`flex h-14 w-14 items-center justify-center rounded-2xl ${ENTRY_TONES[item.tone]}`}
+          >
+            {item.icon}
+          </span>
+          <span className="text-[14px] font-black leading-tight text-navy">{item.label}</span>
         </button>
       ))}
     </div>
@@ -128,7 +163,7 @@ function HomeInner() {
   const [parsed, setParsed] = useState<ParsedPayload | null>(null);
   const [code, setCode] = useState(DEMO_DOC);
   const [resolved, setResolved] = useState<ResolvedCode | null>(null);
-  const [phone, setPhone] = useState(DEMO_CITIZEN_PHONE);
+  const [phone, setPhone] = useState("");
   const [isB2b, setIsB2b] = useState(false);
   const [buyerTin, setBuyerTin] = useState("");
   const [myAmount, setMyAmount] = useState("");
@@ -152,6 +187,8 @@ function HomeInner() {
   const [shopNickname, setShopNickname] = useState("");
   const [shopGroup, setShopGroup] = useState<"" | "imiti" | "ibiryo">("");
   const [showPaySheet, setShowPaySheet] = useState(false);
+  const invoiceCameraRef = useRef<HTMLInputElement>(null);
+  const invoiceGalleryRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     gqTrack("app.session", {
@@ -275,6 +312,10 @@ function HomeInner() {
 
   function startMomoPay() {
     if (lineTotal < 1 || !itemName.trim() || !merchantName.trim() || momoDigits.length < 6) return;
+    if (!phone.trim()) {
+      setMessage(t("phoneRequired"));
+      return;
+    }
     if (payRails.length > 1) {
       setShowPaySheet(true);
       return;
@@ -371,21 +412,31 @@ function HomeInner() {
     setMessage("Fagitire yasomwe — reba ibisobanuro hepfo.");
   }
 
+  async function ensureCitizenJwt() {
+    const existing = sessionStorage.getItem("gq_citizen_jwt");
+    if (verified && existing) return existing;
+    const issued = await apiJson<OtpResponse>("/api/v1/otp/issue", {
+      method: "POST",
+      body: JSON.stringify({ phone }),
+    });
+    const code = otp || debugOtp || issued.debugCode || DEMO_OTP_CODE;
+    if (issued.debugCode) setDebugOtp(issued.debugCode);
+    const data = await apiJson<{ token: string }>("/api/v1/otp/verify", {
+      method: "POST",
+      body: JSON.stringify({ phone, code }),
+    });
+    sessionStorage.setItem("gq_citizen_jwt", data.token);
+    setVerified(true);
+    return data.token;
+  }
+
   async function submitInvoiceEbm() {
     const total = lineTotal > 0 ? lineTotal : Number(myAmount) || 0;
     if (!merchantName.trim() || total < 1) return;
     setBusy(true);
     setMessage("");
     try {
-      if (!verified) {
-        await apiJson("/api/v1/otp/issue", { method: "POST", body: JSON.stringify({ phone }) });
-        const data = await apiJson<{ token: string }>("/api/v1/otp/verify", {
-          method: "POST",
-          body: JSON.stringify({ phone, code: otp || debugOtp || DEMO_OTP_CODE }),
-        });
-        sessionStorage.setItem("gq_citizen_jwt", data.token);
-        setVerified(true);
-      }
+      const token = await ensureCitizenJwt();
       const body = invoiceDocRef.trim()
         ? {
             phone,
@@ -409,7 +460,7 @@ function HomeInner() {
           };
       const created = await apiJson<CreatedRequest>("/api/v1/requests", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionStorage.getItem("gq_citizen_jwt") ?? ""}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       });
       setCreated(created);
@@ -533,15 +584,7 @@ function HomeInner() {
     setBusy(true);
     setMessage("");
     try {
-      if (!verified) {
-        const data = await apiJson<{ token: string }>("/api/v1/otp/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, code: otp || debugOtp || DEMO_OTP_CODE }),
-        });
-        sessionStorage.setItem("gq_citizen_jwt", data.token);
-        setVerified(true);
-      }
+      const token = await ensureCitizenJwt();
       const channel = entryChannel;
       const body = parsed
         ? {
@@ -566,7 +609,7 @@ function HomeInner() {
           };
       const data = await apiJson<CreatedRequest>("/api/v1/requests", {
         method: "POST",
-        headers: { Authorization: `Bearer ${sessionStorage.getItem("gq_citizen_jwt") ?? ""}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       });
       setCreated(data);
@@ -633,7 +676,8 @@ function HomeInner() {
               {
                 id: "scan",
                 label: t("scanQr"),
-                icon: <IconQr />,
+                tone: "qr",
+                icon: <IconQrColor />,
                 onClick: () => {
                   setEntryChannel("QR");
                   setMode("scan");
@@ -643,20 +687,10 @@ function HomeInner() {
                 },
               },
               {
-                id: "code",
-                label: t("typeCode"),
-                icon: <IconKeyboard />,
-                onClick: () => {
-                  setEntryChannel("TYPED");
-                  setMode("code");
-                  setShowManual(true);
-                  setMessage("");
-                },
-              },
-              {
                 id: "invoice",
                 label: t("photoInvoice"),
-                icon: <IconReceipt />,
+                tone: "photo",
+                icon: <IconCameraColor />,
                 onClick: () => {
                   setEntryChannel("INVOICE");
                   setMode("invoice");
@@ -665,9 +699,22 @@ function HomeInner() {
                 },
               },
               {
+                id: "code",
+                label: t("typeCode"),
+                tone: "type",
+                icon: <IconKeyboardColor />,
+                onClick: () => {
+                  setEntryChannel("TYPED");
+                  setMode("code");
+                  setShowManual(true);
+                  setMessage("");
+                },
+              },
+              {
                 id: "momo",
                 label: t("photoMomo"),
-                icon: <IconMomo />,
+                tone: "pay",
+                icon: <IconPayColor />,
                 onClick: () => {
                   setEntryChannel("MOMO");
                   setMode("momo");
@@ -687,24 +734,52 @@ function HomeInner() {
       ) : null}
       {mode === "invoice" ? (
         <div className="space-y-3">
-          <label className="block">
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
+          <p className="text-center text-sm text-muted">{t("invoicePhotoHint")}</p>
+          <input
+            ref={invoiceCameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            disabled={photoBusy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void decodeInvoicePhoto(file);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={invoiceGalleryRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={photoBusy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void decodeInvoicePhoto(file);
+              e.target.value = "";
+            }}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
               disabled={photoBusy}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void decodeInvoicePhoto(file);
-                e.target.value = "";
-              }}
-            />
-            <span className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-[15px] bg-navy py-4 text-[15px] font-bold text-white">
-              <IconReceipt />
-              {photoBusy ? "Turimo gusoma…" : t("scanTakePhoto")}
-            </span>
-          </label>
+              onClick={() => invoiceCameraRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-2 rounded-[15px] bg-navy px-3 py-4 text-[13px] font-bold text-white disabled:opacity-60"
+            >
+              <IconCameraColor />
+              {photoBusy ? t("scanDetecting") : t("invoiceTakePhoto")}
+            </button>
+            <button
+              type="button"
+              disabled={photoBusy}
+              onClick={() => invoiceGalleryRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-2 rounded-[15px] border-2 border-navy bg-white px-3 py-4 text-[13px] font-bold text-navy disabled:opacity-60"
+            >
+              <IconCameraColor />
+              {photoBusy ? t("scanDetecting") : t("invoiceLoadImage")}
+            </button>
+          </div>
           <Field label="Cyangwa wandike ubutumwa bwa fagitire">
             <textarea
               className={`${inputClass} min-h-20`}
@@ -785,6 +860,11 @@ function HomeInner() {
               />
             </Field>
           </div>
+          {isOpenLoginClientHint() ? (
+            <p className="rounded-xl bg-emerald/10 px-3 py-2 text-center text-xs font-bold text-emerald-800">
+              {t("otpPilotHint")}
+            </p>
+          ) : null}
           <Button
             variant="primary"
             className="w-full"
@@ -846,6 +926,17 @@ function HomeInner() {
               placeholder="Paracetamol, umuceri, …"
             />
           </Field>
+          <p className="text-center text-sm text-muted">{t("phoneHint")}</p>
+          <Field label={t("phoneLabel")}>
+            <input
+              className={inputClass}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              placeholder={DEMO_CITIZEN_PHONE}
+              autoComplete="tel"
+            />
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Igiciro (RWF)">
               <input
@@ -867,7 +958,7 @@ function HomeInner() {
           <Button
             variant="primary"
             className="w-full"
-            disabled={busy || !merchantName.trim() || momoDigits.length < 6 || lineTotal < 1 || !itemName.trim()}
+            disabled={busy || !merchantName.trim() || momoDigits.length < 6 || lineTotal < 1 || !itemName.trim() || !phone.trim()}
             onClick={startMomoPay}
           >
             {lineTotal > 0 ? `PAY ${lineTotal.toLocaleString()} RWF` : "PAY — RWF"}
@@ -984,7 +1075,14 @@ function HomeInner() {
           ) : null}
           <p className="text-center text-sm text-muted">{t("phoneHint")}</p>
           <Field label={t("phoneLabel")}>
-            <input className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input
+              className={inputClass}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              placeholder={DEMO_CITIZEN_PHONE}
+              autoComplete="tel"
+            />
           </Field>
           <label className="flex items-center gap-2 text-sm font-bold text-navy">
             <input type="checkbox" checked={isB2b} onChange={(e) => setIsB2b(e.target.checked)} />
@@ -1029,6 +1127,9 @@ function HomeInner() {
               placeholder={debugOtp || DEMO_OTP_CODE}
             />
           </Field>
+          {isOpenLoginClientHint() ? (
+            <p className="text-center text-xs font-bold text-emerald-700">{t("otpPilotHint")}</p>
+          ) : null}
           {debugOtp ? (
             <p className="text-center text-sm text-muted">
               Demo OTP: <span className="font-mono font-bold">{debugOtp}</span>

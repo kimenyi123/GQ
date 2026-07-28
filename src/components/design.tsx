@@ -343,7 +343,16 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
-  const body = (await res.json()) as { ok: boolean; data?: T; error?: { message?: string } };
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`Server error (${res.status}) — empty response. Check database connection.`);
+  }
+  let body: { ok: boolean; data?: T; error?: { message?: string } };
+  try {
+    body = JSON.parse(text) as typeof body;
+  } catch {
+    throw new Error(`Server error (${res.status}): ${text.slice(0, 160)}`);
+  }
   if (!res.ok || !body.ok) {
     throw new Error(body.error?.message ?? "Request failed");
   }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiJson, Button, CitizenShell, Field, inputClass } from "@/components/design";
-import { DEMO_OTP_CODE } from "@/lib/demo-auth";
+import { DEMO_CITIZEN_PHONE, DEMO_OTP_CODE, isOpenLoginClientHint } from "@/lib/demo-auth";
 import {
   buildMomoTelHref,
   clearMomoCheckout,
@@ -13,39 +13,91 @@ import {
 } from "@/lib/momo-payment";
 
 type CreatedRequest = { gqId: string; status: string };
+type OtpResponse = { debugCode?: string };
 
 export default function PayConfirmPage() {
   const router = useRouter();
   const [checkout, setCheckout] = useState<MomoCheckout | null>(null);
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [debugOtp, setDebugOtp] = useState("");
+  const [verified, setVerified] = useState(false);
   const [paymentSms, setPaymentSms] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const dialedRef = useRef(false);
 
+  async function issueOtp() {
+    if (!phone.trim()) {
+      setError("Andika nimero ya telefoni.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const data = await apiJson<OtpResponse>("/api/v1/otp/issue", {
+        method: "POST",
+        body: JSON.stringify({ phone }),
+      });
+      setDebugOtp(data.debugCode ?? DEMO_OTP_CODE);
+      setOtp(data.debugCode ?? DEMO_OTP_CODE);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "OTP yanze");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyPhone() {
+    if (!phone.trim()) {
+      setError("Andika nimero ya telefoni.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await apiJson("/api/v1/otp/issue", {
+        method: "POST",
+        body: JSON.stringify({ phone }),
+      });
+      const verify = await apiJson<{ token: string }>("/api/v1/otp/verify", {
+        method: "POST",
+        body: JSON.stringify({ phone, code: otp || debugOtp || DEMO_OTP_CODE }),
+      });
+      sessionStorage.setItem("gq_citizen_jwt", verify.token);
+      setVerified(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Emeza OTP yanze");
+      setVerified(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const submitEbm = useCallback(async () => {
     if (!checkout) return;
+    if (!phone.trim()) {
+      setError("Andika nimero ya telefoni kugira ngo twakugehere fagitire.");
+      return;
+    }
+    if (!verified) {
+      setError("Emeza telefoni yawe mbere yo gusaba EBM.");
+      return;
+    }
+
     setBusy(true);
     setError("");
 
     const sms = paymentSms.trim();
     const txnId = sms ? parseMomoTransactionId(sms) : null;
+    const token = sessionStorage.getItem("gq_citizen_jwt");
 
     try {
-      await apiJson("/api/v1/otp/issue", {
-        method: "POST",
-        body: JSON.stringify({ phone: checkout.phone }),
-      });
-      const verify = await apiJson<{ token: string }>("/api/v1/otp/verify", {
-        method: "POST",
-        body: JSON.stringify({ phone: checkout.phone, code: DEMO_OTP_CODE }),
-      });
-      sessionStorage.setItem("gq_citizen_jwt", verify.token);
-
       const created = await apiJson<CreatedRequest>("/api/v1/requests", {
         method: "POST",
-        headers: { Authorization: `Bearer ${verify.token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: JSON.stringify({
-          phone: checkout.phone,
+          phone,
           payload: checkout.payload,
           channel: "MOMO",
           geo: checkout.geo ?? undefined,
@@ -74,7 +126,7 @@ export default function PayConfirmPage() {
     } finally {
       setBusy(false);
     }
-  }, [checkout, paymentSms, router]);
+  }, [checkout, paymentSms, phone, router, verified]);
 
   useEffect(() => {
     const draft = loadMomoCheckout();
@@ -83,6 +135,9 @@ export default function PayConfirmPage() {
       return;
     }
     setCheckout(draft);
+    if (draft.phone?.trim()) {
+      setPhone(draft.phone);
+    }
 
     if (!dialedRef.current) {
       dialedRef.current = true;
@@ -120,8 +175,49 @@ export default function PayConfirmPage() {
         ) : null}
 
         <p className="text-center text-sm leading-relaxed text-muted">
-          Emera kwishyura kuri MoMo. Ugarutse hano, ushobora gushyiraho SMS yemeza (si ngombwa) hanyuma ukande Saba EBM.
+          Emera kwishyura kuri MoMo. Ugarutse hano, andika telefoni yawe, emeza OTP, hanyuma usabe EBM.
         </p>
+
+        <p className="text-center text-sm text-muted">Nimero yawe ikoreshwa gusa mu kohereza fagitire.</p>
+        <Field label="Telefoni">
+          <input
+            className={inputClass}
+            value={phone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setVerified(false);
+            }}
+            inputMode="tel"
+            placeholder={DEMO_CITIZEN_PHONE}
+            autoComplete="tel"
+          />
+        </Field>
+        <Field label="Kode OTP">
+          <input
+            className={inputClass}
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            placeholder={debugOtp || DEMO_OTP_CODE}
+          />
+        </Field>
+        {isOpenLoginClientHint() ? (
+          <p className="text-center text-xs font-bold text-emerald-700">
+            Demo OTP: {debugOtp || DEMO_OTP_CODE}
+          </p>
+        ) : null}
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="ghost" className="w-full py-3 text-sm" disabled={busy} onClick={() => void issueOtp()}>
+            Ohereza kode
+          </Button>
+          <Button
+            variant="secondary"
+            className="w-full py-3 text-sm"
+            disabled={busy || verified}
+            onClick={() => void verifyPhone()}
+          >
+            {verified ? "Byemejwe ✓" : "Emeza"}
+          </Button>
+        </div>
 
         <Field label="Shyiraho SMS ya MoMo (optional)">
           <textarea
@@ -144,7 +240,12 @@ export default function PayConfirmPage() {
 
         {checkout ? (
           <>
-            <Button variant="primary" className="w-full" disabled={busy} onClick={() => void submitEbm()}>
+            <Button
+              variant="primary"
+              className="w-full"
+              disabled={busy || !verified || !phone.trim()}
+              onClick={() => void submitEbm()}
+            >
               {busy ? "Turimo kohereza…" : `Saba EBM · ${checkout.totalRwf.toLocaleString()} RWF`}
             </Button>
             <Button
@@ -164,10 +265,6 @@ export default function PayConfirmPage() {
         <Button variant="ghost" className="w-full" onClick={() => router.push("/")}>
           Subira inyuma
         </Button>
-
-        <p className="text-center text-[11px] leading-relaxed text-muted">
-          MTN API (background confirm) — bizaza nyuma. Ubu: kwishyura + SMS optional.
-        </p>
       </div>
     </CitizenShell>
   );

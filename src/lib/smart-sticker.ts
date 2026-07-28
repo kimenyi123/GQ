@@ -2,6 +2,7 @@ import { appendShopToScanUrl, normalizeShopGroup, sectorDefaultGroup, type ShopP
 import { resolvePublicAppUrl } from "./app-url";
 import { buildGq3ScanUrl, buildMomoPayload } from "./qr";
 import { appendPayablesToScanUrl } from "./payment-gateway";
+import { defaultRwandaPayables } from "./rwanda-bank-payables";
 
 export type PayableAccount = {
   id: string;
@@ -52,11 +53,7 @@ export function defaultStickerConfig(): SmartStickerConfig {
     mrc: "ISHSER000006",
     momoCode: "0788101",
     izina: "Algorithm Inc.",
-    payables: [
-      { id: "1", provider: "Access Bank", code: "4555", pillBg: "#F5B800", pillText: "#1a1a1a" },
-      { id: "2", provider: "Airtel", code: "55512", pillBg: "#E4002B", pillText: "#ffffff" },
-      { id: "3", provider: "BK", code: "55544", pillBg: "#0057A8", pillText: "#ffffff" },
-    ],
+    payables: defaultRwandaPayables(),
     payablesFooter: "Algorithm Inc.",
     cameraHint: "Fotora na camera yawe",
     sabaTitle: "SABA EBM YAWE",

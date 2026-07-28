@@ -124,15 +124,24 @@ export default function SellerPage() {
   }
 
   async function availToBuyer(gqId: string) {
+    const vsdcSignature = window.prompt("VSDC receipt signature (16 chars, optional)")?.trim() || undefined;
+    const vsdcInternalData = window.prompt("VSDC internal data (26 chars, optional)")?.trim() || undefined;
     setBusy(true);
     try {
-      await apiJson(`/api/v1/requests/${gqId}/avail`, {
+      const data = await apiJson<{ status: string }>(`/api/v1/requests/${gqId}/avail`, {
         method: "POST",
         headers: authHeaders("gq_seller_jwt"),
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          ...(vsdcSignature ? { vsdcSignature } : {}),
+          ...(vsdcInternalData ? { vsdcInternalData } : {}),
+        }),
       });
       await refresh();
-      setMessage(`EBM available — buyer can pull ${gqId}`);
+      setMessage(
+        data.status === "DONE"
+          ? `EBM available — buyer can pull ${gqId}`
+          : `SDC ref saved — still GENERATING until VSDC signature + internal data are provided.`,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Avail failed");
     } finally {

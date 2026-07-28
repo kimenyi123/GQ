@@ -10,6 +10,8 @@ import {
   type QrCard,
 } from "./pilot-catalog";
 import { encryptPhone, hashPhone } from "./crypto";
+import { signGqRequest } from "./gq-sign";
+import { effectiveCitizenStatus } from "./gq-status";
 import { DEMO_OTP_CODE, isDemoOtpCode, isOpenLoginEnabled, normalizeRwandaPhone } from "./demo-auth";
 import { hashOtp } from "./auth";
 import { generateAuditId, generateOtpSessionId } from "./ids";
@@ -87,6 +89,10 @@ export type MemGlobalQr = {
   docId: string | null;
   moveId: string | null;
   channel: string;
+  gqPayload: string | null;
+  gqRequestSignature: string | null;
+  vsdcSignature: string | null;
+  vsdcInternalData: string | null;
   rraResponse: string | null;
   invoiceOriginal: string | null;
   regenerate: string | null;
@@ -482,6 +488,7 @@ export async function memCreateRequest(input: {
   bank?: string | null;
   bankTxnId?: string | null;
   bankAmount?: number | null;
+  payload?: string | null;
 }) {
   await ensureMemorySeed();
   const db = getMemoryDb();
@@ -505,6 +512,19 @@ export async function memCreateRequest(input: {
   const hasVendor = Boolean(input.vendorId ?? mrcRow?.vendorId);
   const status = hasVendor ? "GENERATING" : "STANDBY";
   const decision = hasVendor ? "ROUTED_TO_VENDOR" : "NO_VENDOR";
+  const scanTs = new Date();
+  const channel = input.channel ?? "QR";
+  const gqRequestSignature = signGqRequest({
+    gqId,
+    tin: input.tin,
+    mrc: input.mrc,
+    amount: input.amount,
+    declaredAmount: input.declaredAmount,
+    phoneHash,
+    scanTs,
+    channel,
+    payload: input.payload,
+  });
 
   const row: MemGlobalQr = {
     payloadId: gqId,
@@ -521,7 +541,7 @@ export async function memCreateRequest(input: {
     bankTxnId: input.bankTxnId ?? null,
     bankAmount: input.bankAmount ?? null,
     paymentSms: input.paymentSms ?? null,
-    time: new Date(),
+    time: scanTs,
     gps: input.geo ?? null,
     timezone: input.timezone ?? "Africa/Kigali",
     status,
@@ -532,7 +552,11 @@ export async function memCreateRequest(input: {
     mrc: input.mrc ?? null,
     docId: input.docId ?? null,
     moveId: input.moveId ?? null,
-    channel: input.channel ?? "QR",
+    channel,
+    gqPayload: input.payload ?? null,
+    gqRequestSignature,
+    vsdcSignature: null,
+    vsdcInternalData: null,
     rraResponse: null,
     invoiceOriginal: null,
     regenerate: null,
@@ -552,7 +576,7 @@ export async function memCreateRequest(input: {
     action: "GLOBAL_QR_CREATE",
     entity: "GlobalQr",
     entityId: gqId,
-    after: JSON.stringify({ status, decision }),
+    after: JSON.stringify({ status, decision, gqRequestSignature }),
   });
 
   return row;
@@ -609,7 +633,14 @@ export function memStartProcessing(gqId: string, actor: string) {
 /** Seller / vendor avails EBM to buyer */
 export function memAvailInvoice(
   gqId: string,
-  input: { sdcNumber: string; actor: string; role?: string; invoiceOriginal?: unknown },
+  input: {
+    sdcNumber: string;
+    actor: string;
+    role?: string;
+    invoiceOriginal?: unknown;
+    vsdcSignature?: string | null;
+    vsdcInternalData?: string | null;
+  },
 ) {
   const db = getMemoryDb();
   const row = db.requests.get(gqId);
@@ -631,36 +662,58 @@ export function memAvailInvoice(
           },
         );
 
-  row.status = "DONE";
-  row.decision = "RRA_ACCEPTED";
+  const vsdcSignature = input.vsdcSignature?.trim() || null;
+  const vsdcInternalData = input.vsdcInternalData?.trim() || null;
+  const hasVsdcStamp = Boolean(vsdcSignature && vsdcInternalData);
+
+  row.status = hasVsdcStamp ? "DONE" : "GENERATING";
+  row.decision = hasVsdcStamp ? "RRA_ACCEPTED" : "UNDER_PROCESSING";
   row.decisionBy = input.actor;
   row.decisionTs = new Date();
   row.sdcNumber = input.sdcNumber;
-  row.rraResponse = JSON.stringify({ accepted: true, sdcNumber: input.sdcNumber });
-  row.invoiceOriginal = invoiceOriginal;
-  row.invoicePdfUrl = `/i/${gqId}`;
-  row.deliveredVia = "PULL";
-  row.deliveredTs = new Date();
-  row.processingNote = "EBM available for buyer pull";
+  row.vsdcSignature = vsdcSignature;
+  row.vsdcInternalData = vsdcInternalData;
+  row.rraResponse = JSON.stringify({
+    accepted: hasVsdcStamp,
+    sdcNumber: input.sdcNumber,
+    signature: vsdcSignature,
+    internalData: vsdcInternalData,
+  });
+  if (hasVsdcStamp) {
+    row.invoiceOriginal = invoiceOriginal;
+    row.invoicePdfUrl = `/i/${gqId}`;
+    row.deliveredVia = "PULL";
+    row.deliveredTs = new Date();
+    row.processingNote = "EBM available for buyer pull";
+  } else {
+    row.processingNote = "Awaiting VSDC receipt signature from Ishyiga — still GENERATING";
+  }
   row.updatedAt = new Date();
 
   writeMemAudit({
     actor: input.actor,
     role: input.role ?? "seller",
-    action: "INVOICE_AVAIL",
+    action: hasVsdcStamp ? "INVOICE_AVAIL" : "VSDC_PENDING",
     entity: "GlobalQr",
     entityId: gqId,
-    after: JSON.stringify({ sdcNumber: input.sdcNumber }),
+    after: JSON.stringify({
+      sdcNumber: input.sdcNumber,
+      vsdcSignature,
+      vsdcInternalData,
+      status: row.status,
+    }),
   });
 
   return row;
 }
 
 export function memPublicRequestView(row: MemGlobalQr) {
+  const displayStatus = effectiveCitizenStatus(row.status, row.vsdcSignature, row.vsdcInternalData);
   return {
     gqId: row.gqId,
     payloadId: row.payloadId,
-    status: row.status,
+    status: displayStatus,
+    rawStatus: row.status,
     tin: row.tinSeller,
     tinSeller: row.tinSeller,
     tinBuyer: row.tinBuyer,
@@ -686,6 +739,10 @@ export function memPublicRequestView(row: MemGlobalQr) {
     bank: row.bank,
     bankTxnId: row.bankTxnId,
     bankAmount: row.bankAmount,
+    gqPayload: row.gqPayload,
+    gqRequestSignature: row.gqRequestSignature,
+    vsdcSignature: row.vsdcSignature,
+    vsdcInternalData: row.vsdcInternalData,
   };
 }
 
@@ -705,5 +762,8 @@ export function memInvoiceView(row: MemGlobalQr) {
     tinBuyer: row.tinBuyer,
     docId: row.docId,
     mrc: row.mrc,
+    gqRequestSignature: row.gqRequestSignature,
+    vsdcSignature: row.vsdcSignature,
+    vsdcInternalData: row.vsdcInternalData,
   };
 }

@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppShell, Button, Field, inputClass } from "@/components/design";
+import { AppShell, Button, Field, apiJson, inputClass } from "@/components/design";
 import { renderStickerPng } from "@/lib/sticker-canvas";
-import { APP_URL_PRESETS, matchAppUrlPreset } from "@/lib/app-url";
+import { APP_URL_PRESETS, detectLanTestUrl, isLocalhostUrl, matchAppUrlPreset } from "@/lib/app-url";
 import {
   buildIhuteShopUrl,
   SHOP_PRODUCT_GROUPS,
   SHOP_SECTOR_PRESETS,
   shopGroupLabel,
 } from "@/lib/ihute-shop";
+import { buildGptStickerBrief } from "@/lib/rwanda-bank-payables";
 import {
   buildStickerQrPayload,
   buildStickerScanUrl,
@@ -99,6 +100,48 @@ export default function StickerBuilderPage() {
   const [gq3Payload, setGq3Payload] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [lanTestUrl, setLanTestUrl] = useState<string>(APP_URL_PRESETS[1].url);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLanUrl() {
+      try {
+        const data = await apiJson<{ lanUrl: string | null }>("/api/v1/dev/lan-url");
+        const fromServer = data.lanUrl?.replace(/\/$/, "");
+        const fromBrowser = detectLanTestUrl();
+        const lan = fromServer || fromBrowser;
+
+        if (cancelled || !lan) return;
+
+        setLanTestUrl(lan);
+        setConfig((c) => {
+          const useLan =
+            c.appBaseUrl === "https://ebm.rw" ||
+            isLocalhostUrl(c.appBaseUrl) ||
+            matchAppUrlPreset(c.appBaseUrl, lan) === "test";
+          return useLan ? { ...c, appBaseUrl: lan } : c;
+        });
+      } catch {
+        const lan = detectLanTestUrl();
+        if (!cancelled) setLanTestUrl(lan);
+      }
+    }
+
+    void loadLanUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function isLanOrigin(url: string) {
+    try {
+      const h = new URL(url).hostname;
+      return /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./i.test(h);
+    } catch {
+      return false;
+    }
+  }
 
   const patch = useCallback((partial: Partial<SmartStickerConfig>) => {
     setConfig((c) => ({ ...c, ...partial }));
@@ -106,6 +149,7 @@ export default function StickerBuilderPage() {
   }, []);
 
   const liveScanUrl = useMemo(() => buildStickerScanUrl(config), [config]);
+  const gptBrief = useMemo(() => buildGptStickerBrief(config), [config]);
 
   const generate = useCallback(async () => {
     setBusy(true);
@@ -203,8 +247,11 @@ export default function StickerBuilderPage() {
           </div>
 
           <div className="rounded-2xl border border-line bg-white p-5">
-            <h2 className="text-lg font-black text-navy">Accounts payable (top)</h2>
-            <p className="mt-1 text-xs text-muted">Access Bank, Airtel, BK — add any provider codes you need.</p>
+            <h2 className="text-lg font-black text-navy">Accounts payable (6 banks)</h2>
+            <p className="mt-1 text-xs text-muted">
+              MoMo <span className="font-bold">{config.momoCode}</span> is primary (in QR payload). Sticker rails:{" "}
+              ACCESS · GT BANK · BPR BANK · BK · AIRTEL · EQUITY.
+            </p>
             <div className="mt-4">
               <PayableEditor rows={config.payables} onChange={(payables) => patch({ payables })} />
             </div>
@@ -226,6 +273,25 @@ export default function StickerBuilderPage() {
                   placeholder="e.g. Pay before pickup"
                 />
               </Field>
+            </div>
+            <div className="mt-4">
+              <span className="mb-2 block text-xs font-bold uppercase tracking-wide text-muted">Copy for ChatGPT</span>
+              <textarea
+                readOnly
+                className="min-h-[200px] w-full rounded-xl border border-line bg-paper p-3 font-mono text-[11px] leading-relaxed text-navy"
+                value={gptBrief}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                className="mt-2 w-full py-2 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(gptBrief);
+                  setMessage("GPT brief copied");
+                }}
+              >
+                Copy GPT brief
+              </Button>
             </div>
           </div>
 
@@ -252,11 +318,15 @@ export default function StickerBuilderPage() {
                       <input
                         type="radio"
                         name="appBasePreset"
-                        checked={matchAppUrlPreset(config.appBaseUrl) === preset.id}
-                        onChange={() => patch({ appBaseUrl: preset.url })}
+                        checked={matchAppUrlPreset(config.appBaseUrl, lanTestUrl) === preset.id}
+                        onChange={() =>
+                          patch({
+                            appBaseUrl: preset.id === "test" ? lanTestUrl : preset.url,
+                          })
+                        }
                         className="h-4 w-4 accent-navy"
                       />
-                      {preset.label}
+                      {preset.id === "test" ? `${preset.label} (${lanTestUrl.replace(/^https?:\/\//, "")})` : preset.label}
                     </label>
                   ))}
                 </div>

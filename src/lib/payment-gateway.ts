@@ -65,6 +65,9 @@ function dialForProvider(provider: string, code: string, amountRwf: number): str
   if (key.includes("airtel")) return `*500*${c}*${a}#`;
   if (key === "bk" || key.includes("kigali")) return `*334*${c}*${a}#`;
   if (key.includes("access")) return `*901*${c}*${a}#`;
+  if (key.includes("gt")) return `*182*1*2*${c}*${a}#`;
+  if (key.includes("bpr")) return `*522*${c}*${a}#`;
+  if (key.includes("equity")) return `*555*1*1*${c}*${a}#`;
   return `*${c}*${a}#`;
 }
 

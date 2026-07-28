@@ -215,41 +215,49 @@ async function drawQrBlock(ctx: CanvasRenderingContext2D, config: SmartStickerCo
 }
 
 function drawPayables(ctx: CanvasRenderingContext2D, config: SmartStickerConfig, y: number) {
-  const boxH = 96 + (config.extraNote ? 12 : 0);
+  const rows = config.payables.length > 3 ? 2 : 1;
+  const perRow = rows === 2 ? Math.ceil(config.payables.length / 2) : config.payables.length;
+  const rowH = rows === 2 ? 52 : 68;
+  const boxH = rowH * rows + 28 + (config.extraNote ? 12 : 0);
   roundRect(ctx, 14, y, W - 28, boxH, 12);
   ctx.strokeStyle = "rgba(255,255,255,0.55)";
   ctx.lineWidth = 2;
   ctx.stroke();
 
   const cols = config.payables.length;
-  const colW = (W - 28) / Math.max(cols, 1);
+  const colW = (W - 28) / Math.max(perRow, 1);
   config.payables.forEach((p, i) => {
-    const cx = 14 + colW * i + colW / 2;
-    if (i > 0) {
+    const row = rows === 2 ? Math.floor(i / perRow) : 0;
+    const col = rows === 2 ? i % perRow : i;
+    const cx = 14 + colW * col + colW / 2;
+    const cy = y + row * rowH;
+    if (col > 0) {
       ctx.strokeStyle = "rgba(255,255,255,0.4)";
       ctx.beginPath();
-      ctx.moveTo(14 + colW * i, y + 10);
-      ctx.lineTo(14 + colW * i, y + boxH - 28);
+      ctx.moveTo(14 + colW * col, cy + 8);
+      ctx.lineTo(14 + colW * col, cy + rowH - 8);
       ctx.stroke();
     }
     ctx.textAlign = "center";
     ctx.fillStyle = i === 0 ? GOLD : "#ffffff";
-    ctx.font = "800 10px Arial, Helvetica, sans-serif";
-    ctx.fillText(`${p.provider}:`, cx, y + 18);
-    const pillW = Math.max(58, ctx.measureText(p.code).width + 22);
-    roundRect(ctx, cx - pillW / 2, y + 24, pillW, 26, 6);
+    ctx.font = rows === 2 ? "800 8px Arial, Helvetica, sans-serif" : "800 10px Arial, Helvetica, sans-serif";
+    ctx.fillText(`${p.provider}:`, cx, cy + 14);
+    const pillW = Math.max(48, ctx.measureText(p.code).width + 16);
+    roundRect(ctx, cx - pillW / 2, cy + 18, pillW, 22, 5);
     ctx.fillStyle = p.pillBg;
     ctx.fill();
     ctx.fillStyle = p.pillText;
-    ctx.font = "900 15px Arial, Helvetica, sans-serif";
-    ctx.fillText(p.code, cx, y + 42);
+    ctx.font = rows === 2 ? "900 12px Arial, Helvetica, sans-serif" : "900 15px Arial, Helvetica, sans-serif";
+    ctx.fillText(p.code, cx, cy + 34);
   });
+
+  const footerY = y + rowH * rows + 4;
 
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 11px Arial, Helvetica, sans-serif";
-  ctx.fillText("Izina : ", W / 2 - 42, y + boxH - 12);
+  ctx.fillText("Izina : ", W / 2 - 42, footerY + 8);
   ctx.fillStyle = GOLD;
-  ctx.fillText(config.payablesFooter, W / 2 + 2, y + boxH - 12);
+  ctx.fillText(config.payablesFooter, W / 2 + 2, footerY + 8);
   ctx.textAlign = "left";
   return y + boxH;
 }

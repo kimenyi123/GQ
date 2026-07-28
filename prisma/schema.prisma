@@ -3,30 +3,34 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model Vendor {
+  vendorId              String    @id
+  name                  String    @map("vendorName")
+  vsdcRef               String?
+  webhookUrl            String?
+  oauthClientId         String?
+  oauthClientSecretHash String?
+  status                String    @default("PENDING") @map("vendorStatus")
+  lastHeartbeat         DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@map("Vendor")
 }
 
 model Seller {
   tin       String   @id
-  name      String
+  name      String   @map("sellerName")
   sector    String
   contacts  String?
   vendorId  String?
-  status    String   @default("ACTIVE")
+  status    String   @default("ACTIVE") @map("sellerStatus")
   createdAt DateTime @default(now())
-}
 
-model Vendor {
-  vendorId               String    @id
-  name                   String
-  vsdcRef                String?
-  webhookUrl             String?
-  oauthClientId          String?
-  oauthClientSecretHash  String?
-  status                 String    @default("PENDING")
-  lastHeartbeat          DateTime?
-  createdAt              DateTime  @default(now())
+  @@map("Seller")
 }
 
 model Mrc {
@@ -36,9 +40,13 @@ model Mrc {
   locationLabel String?
   deviceType    String
   qrVersion     String
-  status        String   @default("ACTIVE")
+  status        String   @default("ACTIVE") @map("mrcStatus")
   issuedAt      DateTime
   issuedBy      String?
+
+  @@index([tin])
+  @@index([vendorId])
+  @@map("Mrc")
 }
 
 model Move {
@@ -48,46 +56,67 @@ model Move {
   mrc      String?
   moveType String
   docRef   String
-  items    String
-  amount   Float
+  items    String   @db.NVarChar(Max)
+  amount   Decimal  @db.Decimal(18, 2)
   currency String   @default("RWF")
-  ts       DateTime
-  raw      String?
+  ts       DateTime @map("moveTs")
+  raw      String?  @map("rawJson") @db.NVarChar(Max)
 
   @@index([mrc])
   @@index([docRef])
+  @@map("Move")
 }
 
 model GlobalQr {
-  gqId          String    @id
-  tin           String
-  mrc           String?
-  docRef        String?
-  moveId        String?
-  amount        Float?
-  items         String?
-  channel       String
-  buyerPhoneEnc String
-  buyerPhoneHash String?
-  buyerEmail    String?
-  geo           String?
-  scanTs        DateTime  @default(now())
-  status        String
-  decision      String?
-  decisionBy    String?
-  decisionTs    DateTime?
-  sdcNumber     String?
-  rraResponse   String?
-  invoicePdfUrl String?
-  deliveredVia  String?
-  deliveredTs   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  gqId            String    @id
+  payloadId       String?
+  requestType     String    @default("ORDER")
+  tin             String
+  tinSeller       String?
+  tinBuyer        String?
+  mrc             String?
+  docRef          String?
+  docId           String?
+  moveId          String?
+  vendorId        String?
+  amount          Decimal?  @db.Decimal(18, 2)
+  declaredAmount  Decimal?  @db.Decimal(18, 2)
+  items           String?   @db.NVarChar(Max)
+  channel         String
+  buyerPhoneEnc   String
+  buyerPhoneHash  String?
+  buyerEmail      String?
+  geo             String?
+  timezone        String?   @default("Africa/Kigali")
+  bank            String?
+  bankTxnId       String?
+  bankAmount      Decimal?  @db.Decimal(18, 2)
+  paymentSms      String?   @db.NVarChar(Max)
+  scanTs          DateTime  @default(now())
+  gqPayload       String?   @db.NVarChar(500)
+  gqRequestSignature String? @db.NVarChar(128)
+  vsdcSignature   String?   @db.NVarChar(32)
+  vsdcInternalData String?  @db.NVarChar(64)
+  status          String    @map("gqStatus")
+  decision        String?
+  decisionBy      String?
+  decisionTs      DateTime?
+  processingNote  String?
+  sdcNumber       String?
+  rraResponse     String?   @db.NVarChar(Max)
+  invoiceOriginal String?   @db.NVarChar(Max)
+  invoicePdfUrl   String?
+  regenerate      String?   @db.NVarChar(Max)
+  deliveredVia    String?
+  deliveredTs     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([status])
   @@index([tin])
   @@index([mrc])
   @@index([buyerPhoneHash])
+  @@map("GlobalQr")
 }
 
 model Payment {
@@ -95,12 +124,13 @@ model Payment {
   provider    String
   payerRef    String?
   payeeTin    String
-  amount      Float
-  ts          DateTime
+  amount      Decimal  @db.Decimal(18, 2)
+  ts          DateTime @map("paymentTs")
   gqId        String?
   matchStatus String   @default("UNMATCHED")
 
   @@index([gqId])
+  @@map("Payment")
 }
 
 model EvasionReport {
@@ -108,51 +138,63 @@ model EvasionReport {
   gqId        String?
   sellerTin   String
   phoneEnc    String
-  note        String?
+  note        String?  @db.NVarChar(Max)
   evidenceUrl String?
-  status      String   @default("NEW")
+  status      String   @default("NEW") @map("reportStatus")
   createdAt   DateTime @default(now())
+
+  @@map("EvasionReport")
 }
 
 model User {
-  id           String   @id
+  id           String   @id @map("userId")
   phone        String?
   email        String?
   passwordHash String?
-  role         String
+  role         String   @map("userRole")
   tin          String?
   vendorId     String?
-  name         String?
+  name         String?  @map("displayName")
   createdAt    DateTime @default(now())
+
+  @@map("GqUser")
 }
 
 model OtpSession {
-  id        String   @id
+  id        String   @id @map("otpId")
   phone     String
   codeHash  String
   expiresAt DateTime
   verified  Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@map("OtpSession")
 }
 
 model AuditLog {
-  id       String   @id
+  id       String   @id @map("auditId")
   actor    String
-  role     String
+  role     String   @map("userRole")
   action   String
   entity   String
   entityId String
-  before   String?
-  after    String?
-  ts       DateTime @default(now())
+  before   String?  @map("beforeJson") @db.NVarChar(Max)
+  after    String?  @map("afterJson") @db.NVarChar(Max)
+  ts       DateTime @default(now()) @map("auditTs")
+
+  @@index([entity, entityId])
+  @@map("AuditLog")
 }
 
 model BatchRun {
-  id       String   @id
-  date     DateTime
+  id       String   @id @map("batchId")
+  date     DateTime @map("runDate") @db.Date
   pushed   Int
   refunded Int
   failed   Int
-  report   String?
-  ts       DateTime @default(now())
+  report   String?  @db.NVarChar(Max)
+  ts       DateTime @default(now()) @map("batchTs")
+
+  @@map("BatchRun")
 }

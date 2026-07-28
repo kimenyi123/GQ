@@ -1,0 +1,16 @@
+-- Run this in SSMS on EBM_RW to check what was created
+USE [EBM_RW];
+GO
+
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = 'dbo'
+ORDER BY TABLE_NAME;
+GO
+
+SELECT 'Vendor' AS tbl, COUNT(*) AS rows FROM dbo.Vendor
+UNION ALL SELECT 'Seller', COUNT(*) FROM dbo.Seller
+UNION ALL SELECT 'Mrc', COUNT(*) FROM dbo.Mrc
+UNION ALL SELECT 'GlobalQr', COUNT(*) FROM dbo.GlobalQr
+UNION ALL SELECT 'GqUser', COUNT(*) FROM dbo.GqUser;
+GO
