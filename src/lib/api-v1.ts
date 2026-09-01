@@ -1508,6 +1508,277 @@ export async function listPilotSellersRoute() {
   });
 }
 
+export async function upsertDraftRoute(request: Request) {
+  const { raw, body } = await readRawJson<Record<string, unknown>>(request);
+  if (!body || !verifyOptionalHmac(request, raw)) {
+    return jsonErr("Invalid body or HMAC", 401);
+  }
+
+  const docRef = String(body.docRef ?? "");
+  const tin = String(body.tin ?? "");
+  const mrc = String(body.mrc ?? "");
+  if (!docRef || !tin || !mrc) {
+    return jsonErr("docRef, tin and mrc are required", 400);
+  }
+
+  const { upsertDraft } = await import("./gq-drafts");
+  const draft = await upsertDraft({
+    docRef,
+    tin,
+    mrc,
+    status: typeof body.status === "string" ? (body.status as "DRAFT") : "DRAFT",
+    ijisho: typeof body.ijisho === "string" ? body.ijisho : null,
+    buyerTin: typeof body.buyerTin === "string" ? body.buyerTin : null,
+    buyerName: typeof body.buyerName === "string" ? body.buyerName : null,
+    amount: typeof body.amount === "number" ? body.amount : null,
+    tva: typeof body.tva === "number" ? body.tva : null,
+    items: body.items,
+    gqPayload: typeof body.gqPayload === "string" ? body.gqPayload : null,
+    gqUrl: typeof body.gqUrl === "string" ? body.gqUrl : null,
+    railCode: typeof body.railCode === "string" ? body.railCode : null,
+    railTxnId: typeof body.railTxnId === "string" ? body.railTxnId : null,
+    railAmount: typeof body.railAmount === "number" ? body.railAmount : null,
+    railSource: typeof body.railSource === "string" ? body.railSource : null,
+  });
+
+  return jsonOk(draft);
+}
+
+export async function patchDraftStatusRoute(request: Request, docRef: string) {
+  const { raw, body } = await readRawJson<Record<string, unknown>>(request);
+  if (!body || !verifyOptionalHmac(request, raw)) {
+    return jsonErr("Invalid body or HMAC", 401);
+  }
+
+  const status = typeof body.status === "string" ? body.status : "";
+  if (!status) {
+    return jsonErr("status is required", 400);
+  }
+
+  const { patchDraftStatus } = await import("./gq-drafts");
+  try {
+    const draft = await patchDraftStatus(docRef, {
+      status: status as "DRAFT",
+      gqPayload: typeof body.gqPayload === "string" ? body.gqPayload : undefined,
+      gqUrl: typeof body.gqUrl === "string" ? body.gqUrl : undefined,
+      railCode: typeof body.railCode === "string" ? body.railCode : undefined,
+      railTxnId: typeof body.railTxnId === "string" ? body.railTxnId : undefined,
+      railAmount: typeof body.railAmount === "number" ? body.railAmount : undefined,
+      railSource: typeof body.railSource === "string" ? body.railSource : undefined,
+    });
+    return jsonOk(draft);
+  } catch (error) {
+    return jsonErr(error instanceof Error ? error.message : "Draft update failed", 404);
+  }
+}
+
+export async function getDraftRoute(docRef: string) {
+  const { getDraft } = await import("./gq-drafts");
+  const draft = await getDraft(docRef);
+  if (!draft) {
+    return jsonErr("Draft not found", 404);
+  }
+  return jsonOk(draft);
+}
+
+export async function simulatorLanProxyRoute(request: Request) {
+  if (process.env.NODE_ENV === "production") {
+    return jsonErr("Not available in production", 404);
+  }
+
+  const url = new URL(request.url);
+  const base = url.searchParams.get("base")?.replace(/\/+$/, "");
+  const path = url.searchParams.get("path") ?? "/draft/current";
+  const method = (url.searchParams.get("method") ?? "GET").toUpperCase();
+
+  if (!base || !/^https?:\/\//i.test(base)) {
+    return jsonErr("base query param must be http(s) ERP LAN URL", 400);
+  }
+
+  try {
+    const target = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+    const init: RequestInit = { method, headers: { Accept: "application/json" } };
+    if (method !== "GET" && method !== "HEAD") {
+      const body = await request.text();
+      init.body = body;
+      init.headers = { ...init.headers, "Content-Type": "application/json" };
+    }
+    const res = await fetch(target, init);
+    const text = await res.text();
+    let data: unknown = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* plain text */
+    }
+    return jsonOk({ status: res.status, data });
+  } catch (error) {
+    return jsonErr(error instanceof Error ? error.message : "LAN proxy failed", 502);
+  }
+}
+
+export async function simulatorMakeEbmRoute(request: Request) {
+  if (process.env.NODE_ENV === "production") {
+    return jsonErr("Not available in production", 404);
+  }
+
+  const body = await readJson<Record<string, unknown>>(request);
+  if (!body) return jsonErr("Invalid JSON", 400);
+
+  const docRef = String(body.docRef ?? "");
+  const tin = String(body.tin ?? "");
+  const mrc = String(body.mrc ?? "");
+  const buyerPhone = normalizeRwandaPhone(String(body.buyerPhone ?? "+250788000001"));
+  const buyerTin = typeof body.buyerTin === "string" ? body.buyerTin : "";
+  const buyerName = typeof body.buyerName === "string" ? body.buyerName : "";
+  const amount = Number(body.amount);
+  const items = body.items;
+  const gqPayload = typeof body.gqPayload === "string" ? body.gqPayload : null;
+  const invoiceOriginal = typeof body.invoiceOriginal === "string" ? body.invoiceOriginal : null;
+  const printOption = typeof body.printOption === "string" ? body.printOption : "EPSON";
+  const promoText = typeof body.promoText === "string" ? body.promoText : "";
+  const railCode = typeof body.railCode === "string" ? body.railCode : "";
+  const railTxnId = typeof body.railTxnId === "string" ? body.railTxnId : "";
+  const paidFrom = typeof body.paidFrom === "string" ? body.paidFrom : buyerPhone;
+  const paidOn = typeof body.paidOn === "string" ? body.paidOn : "";
+  const vsdcSignature = typeof body.vsdcSignature === "string" ? body.vsdcSignature : null;
+  const vsdcInternalData = typeof body.vsdcInternalData === "string" ? body.vsdcInternalData : null;
+
+  if (!docRef || !tin || !mrc || !Number.isFinite(amount)) {
+    return jsonErr("docRef, tin, mrc and amount are required", 400);
+  }
+  if (!vsdcSignature || !vsdcInternalData) {
+    return jsonErr("vsdcSignature (16) and vsdcInternalData (26) are required", 400);
+  }
+
+  const { patchDraftStatus, upsertDraft } = await import("./gq-drafts");
+
+  await upsertDraft({
+    docRef,
+    tin,
+    mrc,
+    status: "PAID",
+    buyerTin,
+    buyerName,
+    amount,
+    items,
+    gqPayload,
+    railCode,
+    railTxnId,
+    railAmount: amount,
+    railSource: "simulator",
+  });
+
+  await patchDraftStatus(docRef, {
+    status: "STAMPED",
+    railCode,
+    railTxnId,
+    railAmount: amount,
+    railSource: "simulator",
+  });
+
+  try {
+    await prisma.otpSession.create({
+      data: {
+        id: generateOtpSessionId(),
+        phone: buyerPhone,
+        codeHash: await hashOtp(DEMO_OTP_CODE),
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        verified: true,
+      },
+    });
+  } catch {
+    /* ok if exists */
+  }
+
+  await ensureMemorySeed();
+  const itemsJson =
+    typeof items === "string" ? items : items != null ? JSON.stringify(items) : null;
+
+  let row;
+  if (await isDatabaseReady()) {
+    try {
+      row = await dbCreateRequest({
+        phone: buyerPhone,
+        tin,
+        mrc,
+        docRef,
+        docId: docRef,
+        amount,
+        items: itemsJson,
+        type: "ORDER",
+        channel: "SIMULATOR",
+        tinBuyer: buyerTin || null,
+        bank: railCode || null,
+        bankTxnId: railTxnId || null,
+        bankAmount: amount,
+        payload: gqPayload,
+        paymentSms: promoText ? `PROMO:${promoText.slice(0, 120)}` : null,
+      });
+    } catch {
+      row = null;
+    }
+  }
+
+  if (!row) {
+    const mem = await memCreateRequest({
+      phone: buyerPhone,
+      tin,
+      mrc,
+      docId: docRef,
+      amount,
+      items: itemsJson,
+      type: "ORDER",
+      channel: "SIMULATOR",
+      tinBuyer: buyerTin || null,
+      bank: railCode || null,
+      bankTxnId: railTxnId || null,
+      bankAmount: amount,
+    });
+    row = mem as unknown as { gqId: string; status: string };
+  }
+
+  const gqId = row.gqId;
+  const sdcNumber = `SDC${Date.now().toString(36).toUpperCase().slice(-8)}`;
+
+  try {
+    if (await isDatabaseReady()) {
+      await dbAvailInvoice(gqId, {
+        sdcNumber,
+        actor: "simulator",
+        role: "vendor",
+        invoiceOriginal,
+        vsdcSignature,
+        vsdcInternalData,
+      });
+    } else {
+      memAvailInvoice(gqId, {
+        sdcNumber,
+        actor: "simulator",
+        role: "vendor",
+        invoiceOriginal,
+        vsdcSignature,
+        vsdcInternalData,
+      });
+    }
+  } catch (error) {
+    return jsonErr(error instanceof Error ? error.message : "Avail failed", 400);
+  }
+
+  return jsonOk({
+    gqId,
+    status: "DONE",
+    sdcNumber,
+    docRef,
+    trackerUrl: `/r/${gqId}`,
+    invoiceUrl: `/i/${gqId}`,
+    receipt: invoiceOriginal,
+    printOption,
+    promoText,
+    payment: { railCode, railTxnId, paidFrom, paidOn, amount },
+  });
+}
+
 export async function listRouteFiles() {
   return [];
 }

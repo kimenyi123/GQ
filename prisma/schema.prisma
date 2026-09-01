@@ -198,3 +198,31 @@ model BatchRun {
 
   @@map("BatchRun")
 }
+
+model GqDraft {
+  docRef      String   @id
+  tin         String
+  mrc         String
+  status      String   @default("DRAFT") @map("draftStatus")
+  ijisho      String?
+  buyerTin    String?
+  buyerName   String?
+  amount      Decimal? @db.Decimal(18, 2)
+  tva         Decimal? @db.Decimal(18, 2)
+  items       String?  @db.NVarChar(Max)
+  gqPayload   String?  @db.NVarChar(500)
+  gqUrl       String?  @db.NVarChar(500)
+  gqId        String?
+  railCode    String?
+  railTxnId   String?
+  railAmount  Decimal? @db.Decimal(18, 2)
+  railSource  String?
+  railConfirmedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tin])
+  @@index([mrc])
+  @@index([status])
+  @@map("GqDraft")
+}

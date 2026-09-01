@@ -11,9 +11,6 @@ function scoreNic(address: string) {
 
 /** Pick Wi-Fi / LAN IPv4 from this machine (ipconfig), not localhost. */
 export function getMachineLanUrl(port = 3000) {
-  const fromEnv = process.env.GQ_DEV_LAN_URL?.trim().replace(/\/$/, "");
-  if (fromEnv) return fromEnv;
-
   const candidates: string[] = [];
 
   for (const entries of Object.values(os.networkInterfaces())) {
@@ -25,8 +22,18 @@ export function getMachineLanUrl(port = 3000) {
   }
 
   candidates.sort((a, b) => scoreNic(b) - scoreNic(a));
-  const ip = candidates[0];
-  if (!ip) return null;
+  const detected = candidates[0];
 
-  return `http://${ip}:${port}`;
+  const fromEnv = process.env.GQ_DEV_LAN_URL?.trim().replace(/\/$/, "");
+  if (fromEnv) {
+    try {
+      const envHost = new URL(fromEnv).hostname;
+      if (detected && envHost === detected) return fromEnv;
+    } catch {
+      /* ignore bad env URL */
+    }
+  }
+
+  if (detected) return `http://${detected}:${port}`;
+  return fromEnv ?? null;
 }

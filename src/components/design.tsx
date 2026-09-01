@@ -549,6 +549,27 @@ export function BurgerMenu() {
               </p>
               <div className="space-y-2">
                 <Link
+                  href="/client"
+                  onClick={() => setOpen(false)}
+                  className="block rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-navy"
+                >
+                  Client app (buyer / Saba EBM)
+                </Link>
+                <Link
+                  href="/erp"
+                  onClick={() => setOpen(false)}
+                  className="block rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-navy"
+                >
+                  Web ERP desk (no Ishyiga install)
+                </Link>
+                <Link
+                  href="/till"
+                  onClick={() => setOpen(false)}
+                  className="block rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-navy"
+                >
+                  Till phone simulator
+                </Link>
+                <Link
                   href="/demo-qr"
                   onClick={() => setOpen(false)}
                   className="block rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-navy"
